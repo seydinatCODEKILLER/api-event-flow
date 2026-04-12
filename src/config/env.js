@@ -12,6 +12,7 @@ const REQUIRED_IN_PROD = [
   "WEB_URL",
   "BREVO_API_KEY",
   "MAIL_FROM",
+  "DUMMY_HASH",
 ];
 
 const missing = [
@@ -64,4 +65,5 @@ export const env = {
 
   BREVO_API_KEY: process.env.BREVO_API_KEY || "",
   MAIL_FROM: process.env.MAIL_FROM || "noreply@eventflow.com",
+  DUMMY_HASH: process.env.DUMMY_HASH || "$2b$10$abcdefghijklmnopqrstuuVVmqJZOdEJ.JkpjBnBnNmS6RsOi8jCy",
 };

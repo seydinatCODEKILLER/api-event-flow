@@ -11,7 +11,7 @@ class MediaUploader {
    * @param {string} folder - Dossier de destination
    * @param {string} prefix - Préfixe pour le public_id
    */
-  async upload(file, folder = "organize/members", prefix = "avatar") {
+  async upload(file, folder = "eventflow/avatars", prefix = "avatar") {
     if (!file || !file.buffer) return null;
 
     try {
@@ -25,9 +25,8 @@ class MediaUploader {
           (error, result) => {
             if (error) reject(error);
             else resolve(result);
-          }
+          },
         );
-
         stream.end(file.buffer);
       });
 
@@ -36,7 +35,10 @@ class MediaUploader {
         url: result.secure_url,
       });
 
-      return result.secure_url;
+      return {
+        url: result.secure_url,
+        public_id: result.public_id,
+      };
     } catch (error) {
       console.error("Upload failed:", error);
       throw error;
@@ -48,7 +50,9 @@ class MediaUploader {
     if (!uploadInfo) return;
 
     try {
-      await cloudinary.uploader.destroy(uploadInfo.public_id, { resource_type: "auto" });
+      await cloudinary.uploader.destroy(uploadInfo.public_id, {
+        resource_type: "auto",
+      });
       this.uploadResults.delete(prefix);
       console.log(`Rollback successful - deleted: ${uploadInfo.public_id}`);
     } catch (error) {
@@ -60,10 +64,13 @@ class MediaUploader {
     if (!url) return;
 
     try {
-      const urlParts = url.split('/');
-      const uploadIndex = urlParts.indexOf('upload');
-      const publicIdWithExtension = urlParts.slice(uploadIndex + 2).join('/');
-      const publicId = publicIdWithExtension.substring(0, publicIdWithExtension.lastIndexOf('.'));
+      const urlParts = url.split("/");
+      const uploadIndex = urlParts.indexOf("upload");
+      const publicIdWithExtension = urlParts.slice(uploadIndex + 2).join("/");
+      const publicId = publicIdWithExtension.substring(
+        0,
+        publicIdWithExtension.lastIndexOf("."),
+      );
 
       if (publicId) {
         await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
