@@ -6,7 +6,8 @@ export const swaggerOptions = {
     info: {
       title: "EventFlow API",
       version: "1.0.0",
-      description: "API de gestion d'événements et contrôle d'accès offline-first pour l'Afrique",
+      description:
+        "API de gestion d'événements et contrôle d'accès offline-first pour l'Afrique",
       contact: {
         name: "Support EventFlow",
         email: "support@eventflow.com",
@@ -35,7 +36,6 @@ export const swaggerOptions = {
         },
       },
       schemas: {
-
         // ─── Communs ───────────────────────────────────────────
         Error: {
           type: "object",
@@ -61,8 +61,16 @@ export const swaggerOptions = {
             nom: { type: "string", example: "Diallo" },
             prenom: { type: "string", example: "Amadou" },
             email: { type: "string", example: "amadou@eventflow.com" },
-            role: { type: "string", enum: ["ORGANIZER", "MODERATOR"], example: "ORGANIZER" },
-            avatarUrl: { type: "string", nullable: true, example: "https://res.cloudinary.com/..." },
+            role: {
+              type: "string",
+              enum: ["ORGANIZER", "MODERATOR"],
+              example: "ORGANIZER",
+            },
+            avatarUrl: {
+              type: "string",
+              nullable: true,
+              example: "https://res.cloudinary.com/...",
+            },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
           },
@@ -71,8 +79,14 @@ export const swaggerOptions = {
           type: "object",
           properties: {
             user: { $ref: "#/components/schemas/User" },
-            accessToken: { type: "string", example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
-            refreshToken: { type: "string", example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
+            accessToken: {
+              type: "string",
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            },
+            refreshToken: {
+              type: "string",
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            },
           },
         },
 
@@ -92,9 +106,48 @@ export const swaggerOptions = {
               example: "PUBLISHED",
             },
             organizerId: { type: "string", format: "uuid" },
+            ticketsCount: { type: "integer", example: 3200 },
+            scansCount: { type: "integer", example: 1800 },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
           },
+        },
+        EventFull: {
+          allOf: [
+            { $ref: "#/components/schemas/Event" },
+            {
+              type: "object",
+              properties: {
+                organizer: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string", format: "uuid" },
+                    nom: { type: "string", example: "Diallo" },
+                    prenom: { type: "string", example: "Amadou" },
+                    email: { type: "string", example: "amadou@eventflow.com" },
+                    avatarUrl: { type: "string", nullable: true },
+                  },
+                },
+                moderators: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string", format: "uuid" },
+                      nom: { type: "string", example: "Ndiaye" },
+                      prenom: { type: "string", example: "Moussa" },
+                      email: {
+                        type: "string",
+                        example: "moussa@eventflow.com",
+                      },
+                      avatarUrl: { type: "string", nullable: true },
+                      assignedAt: { type: "string", format: "date-time" },
+                    },
+                  },
+                },
+              },
+            },
+          ],
         },
 
         // ─── Participant ───────────────────────────────────────
@@ -103,7 +156,11 @@ export const swaggerOptions = {
           properties: {
             id: { type: "string", format: "uuid" },
             fullName: { type: "string", example: "Fatou Sow" },
-            email: { type: "string", nullable: true, example: "fatou@gmail.com" },
+            email: {
+              type: "string",
+              nullable: true,
+              example: "fatou@gmail.com",
+            },
             phone: { type: "string", nullable: true, example: "+221771234567" },
             createdAt: { type: "string", format: "date-time" },
           },
@@ -114,7 +171,10 @@ export const swaggerOptions = {
           type: "object",
           properties: {
             id: { type: "string", format: "uuid" },
-            qrPayload: { type: "string", example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
+            qrPayload: {
+              type: "string",
+              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            },
             status: {
               type: "string",
               enum: ["ACTIVE", "USED", "CANCELLED"],
@@ -219,8 +279,5 @@ export const swaggerOptions = {
     },
     security: [{ bearerAuth: [] }],
   },
-  apis: [
-    "./src/modules/**/*.routes.js",
-    "./src/modules/**/*.controller.js",
-  ],
+  apis: ["./src/modules/**/*.routes.js", "./src/modules/**/*.controller.js"],
 };
