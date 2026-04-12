@@ -1,0 +1,241 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum EmailType {
+  TICKET
+  TICKET_RESEND
+}
+
+enum UserRole {
+  ORGANIZER
+  MODERATOR
+}
+
+enum EventStatus {
+  DRAFT
+  PUBLISHED
+  ONGOING
+  CLOSED
+}
+
+enum TicketStatus {
+  ACTIVE
+  USED
+  CANCELLED
+}
+
+enum ScanResult {
+  VALID
+  ALREADY_USED
+  INVALID
+  CONFLICT
+}
+
+// ─────────────────────────────────────────
+// USER (STAFF UNIQUEMENT)
+// ─────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  nom          String
+  prenom       String
+  email        String   @unique
+  password     String
+  role         UserRole
+  avatarUrl    String?
+  avatarPublicId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organizedEvents Event[]          @relation("OrganizerEvents")
+  moderatedEvents EventModerator[]
+  scanLogs        ScanLog[]
+  refreshTokens   RefreshToken[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────
+// REFRESH TOKEN
+// ─────────────────────────────────────────
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  deviceId  String?  
+  userAgent String?
+  ipAddress String?
+
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+// ─────────────────────────────────────────
+// EVENT
+// ─────────────────────────────────────────
+
+model Event {
+  id        String      @id @default(uuid())
+  title     String
+  location  String
+  startDate DateTime
+  endDate   DateTime?
+  capacity  Int
+  status    EventStatus @default(DRAFT)
+
+  organizerId String
+  organizer   User        @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets    Ticket[]
+  moderators EventModerator[]
+  scanLogs   ScanLog[]
+
+  @@index([status])
+  @@index([organizerId])
+  @@map("events")
+}
+
+// ─────────────────────────────────────────
+// EVENT MODERATOR (JOIN TABLE)
+// ─────────────────────────────────────────
+
+model EventModerator {
+  id String @id @default(uuid())
+
+  eventId String
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  assignedAt DateTime @default(now())
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@map("event_moderators")
+}
+
+// ─────────────────────────────────────────
+// PARTICIPANT (SANS AUTHENTIFICATION)
+// ─────────────────────────────────────────
+
+model Participant {
+  id       String  @id @default(uuid())
+  fullName String
+  email    String?
+  phone    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets Ticket[]
+
+  @@index([email])
+  @@index([phone])
+  @@map("participants")
+}
+
+// ─────────────────────────────────────────
+// TICKET
+// ─────────────────────────────────────────
+
+model Ticket {
+  id        String       @id @default(uuid())
+  qrPayload String       @unique
+  status    TicketStatus @default(ACTIVE)
+  usedAt    DateTime?
+
+  eventId       String
+  participantId String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  event       Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  scanLogs    ScanLog[]
+  emailLogs   EmailLog[] 
+
+  @@unique([eventId, participantId])
+  @@index([eventId])
+  @@index([status])
+  @@map("tickets")
+}
+
+// ─────────────────────────────────────────
+// SCAN LOG (OFFLINE-FIRST)
+// ─────────────────────────────────────────
+
+model ScanLog {
+  id       String     @id @default(uuid())
+  result   ScanResult
+  deviceId String
+
+  scannedAt DateTime
+  syncedAt  DateTime?
+
+  ticketId    String
+  eventId     String
+  moderatorId String?
+
+  createdAt DateTime @default(now())
+
+  ticket    Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  event     Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  moderator User?  @relation(fields: [moderatorId], references: [id])
+
+  @@index([ticketId])
+  @@index([eventId])
+  @@index([moderatorId])
+  @@index([syncedAt])
+  @@index([scannedAt])
+  @@map("scan_logs")
+}
+
+model EmailLog {
+  id          String      @id @default(uuid())
+  to          String
+  type        EmailType
+  status      EmailStatus @default(PENDING)
+  error       String?
+  sentAt      DateTime?
+
+  ticketId    String
+  ticket      Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([status])
+  @@map("email_logs")
+}
