@@ -30,15 +30,14 @@ app.use("/api", generalLimiter);
 // ─── Routes ───────────────────────────────────────────────────
 import authRoutes from "./modules/auth/auth.routes.js";
 import eventRoutes from "./modules/events/event.routes.js";
-// import participantRoutes from "./modules/participants/participant.routes.js";
+import participantRoutes from "./modules/participants/participant.routes.js";
 // import ticketRoutes from "./modules/tickets/ticket.routes.js";
 // import syncRoutes from "./modules/sync/sync.routes.js";
 // import statsRoutes from "./modules/stats/stats.routes.js";
 
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
-// app.use("/api/events", eventRoutes);
-// app.use("/api/participants", participantRoutes);
+app.use("/api/events/:eventId/participants", participantRoutes);
 // app.use("/api/tickets", ticketRoutes);
 // app.use("/api/sync", syncRoutes);
 // app.use("/api/stats", statsRoutes);
