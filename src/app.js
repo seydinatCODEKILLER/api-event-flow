@@ -33,6 +33,9 @@ import eventRoutes from "./modules/events/event.routes.js";
 import participantRoutes from "./modules/participants/participant.routes.js";
 import { ticketRouter, ticketStandaloneRouter } from "./modules/tickets/ticket.routes.js";
 import syncRoutes from "./modules/sync/sync.routes.js";
+import { publicRoutes } from "./modules/public/index.js";
+
+app.use("/api/public", publicRoutes);
 
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);

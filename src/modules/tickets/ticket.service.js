@@ -25,9 +25,7 @@ const assertOrganizerOwnsEvent = async (eventId, organizerId) => {
   const event = await eventRepo.findById(eventId);
   if (!event) throw new NotFoundError("Événement");
   if (event.organizerId !== organizerId) {
-    throw new ForbiddenError(
-      "Vous n'êtes pas l'organisateur de cet événement"
-    );
+    throw new ForbiddenError("Vous n'êtes pas l'organisateur de cet événement");
   }
   return event;
 };
@@ -48,16 +46,15 @@ const buildTicketResponse = (ticket) => ({
 // ─── Service ──────────────────────────────────────────────────
 
 export class TicketService {
-
   // ─── Créer un ticket + générer QR + upload Cloudinary ────────
   async createTicket(eventId, participantId) {
     const existing = await ticketRepo.findByEventAndParticipant(
       eventId,
-      participantId
+      participantId,
     );
     if (existing) {
       throw new ConflictError(
-        "Ce participant a déjà un ticket pour cet événement"
+        "Ce participant a déjà un ticket pour cet événement",
       );
     }
 
@@ -73,7 +70,7 @@ export class TicketService {
     const { payload, buffer } = await generateTicketQr(
       ticket.id,
       eventId,
-      participantId
+      participantId,
     );
 
     // Upload QR code sur Cloudinary
@@ -85,14 +82,14 @@ export class TicketService {
       const uploaded = await uploader.uploadBuffer(
         buffer,
         "eventflow/qrcodes",
-        `qr_${ticket.id}`
+        `qr_${ticket.id}`,
       );
       qrUrl = uploaded.url;
       qrPublicId = uploaded.public_id;
     } catch (err) {
       logger.warn(
         { err, ticketId: ticket.id },
-        "QR upload Cloudinary échoué — fallback base64 à l'envoi email"
+        "QR upload Cloudinary échoué — fallback base64 à l'envoi email",
       );
     }
 
@@ -119,7 +116,7 @@ export class TicketService {
 
     if (!ticket.participant.email) {
       throw new BadRequestError(
-        "Ce participant n'a pas d'adresse email — envoi impossible"
+        "Ce participant n'a pas d'adresse email — envoi impossible",
       );
     }
 
@@ -168,8 +165,7 @@ export class TicketService {
 
       return { sent: true, to: ticket.participant.email };
     } catch (err) {
-        logger.error(err
-        )
+      logger.error(err);
       await ticketRepo.updateEmailLog(emailLog.id, {
         status: "FAILED",
         error: err.message,
@@ -177,8 +173,63 @@ export class TicketService {
 
       logger.error({ err, ticketId }, "Échec envoi email ticket");
       throw new BadRequestError(
-        "Échec de l'envoi de l'email — réessayez plus tard"
+        "Échec de l'envoi de l'email — réessayez plus tard",
       );
+    }
+  }
+
+  // Dans ticket.service.js — ajouter cette méthode
+
+  async sendTicketEmailPublic(ticketId) {
+    const ticket = await ticketRepo.findByIdFull(ticketId);
+    if (!ticket) throw new NotFoundError("Ticket");
+    if (!ticket.participant.email) return;
+
+    const emailLog = await ticketRepo.createEmailLog({
+      ticketId,
+      to: ticket.participant.email,
+      type: "TICKET",
+      status: "PENDING",
+    });
+
+    const qrImageUrl = ticket.qrUrl || null;
+    const qrBase64 = qrImageUrl
+      ? null
+      : await generateQrCodeBase64(ticket.qrPayload);
+
+    const html = ticketEmailTemplate({
+      participantName: ticket.participant.fullName,
+      eventTitle: ticket.event.title,
+      eventLocation: ticket.event.location,
+      eventDate: ticket.event.startDate,
+      qrImageUrl,
+      qrBase64,
+      ticketId: ticket.id,
+    });
+
+    try {
+      await sendEmail({
+        to: ticket.participant.email,
+        toName: ticket.participant.fullName,
+        subject: `Votre ticket — ${ticket.event.title}`,
+        html,
+      });
+
+      await ticketRepo.updateEmailLog(emailLog.id, {
+        status: "SENT",
+        sentAt: new Date(),
+      });
+
+      logger.logEvent("ticket_email_sent_public", {
+        ticketId,
+        to: ticket.participant.email,
+      });
+    } catch (err) {
+      await ticketRepo.updateEmailLog(emailLog.id, {
+        status: "FAILED",
+        error: err.message,
+      });
+      throw err;
     }
   }
 
@@ -244,7 +295,7 @@ export class TicketService {
 
     if (ticket.status === "USED") {
       throw new BadRequestError(
-        "Un ticket déjà utilisé ne peut pas être annulé"
+        "Un ticket déjà utilisé ne peut pas être annulé",
       );
     }
     if (ticket.status === "CANCELLED") {
