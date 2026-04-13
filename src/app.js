@@ -31,16 +31,16 @@ app.use("/api", generalLimiter);
 import authRoutes from "./modules/auth/auth.routes.js";
 import eventRoutes from "./modules/events/event.routes.js";
 import participantRoutes from "./modules/participants/participant.routes.js";
-// import ticketRoutes from "./modules/tickets/ticket.routes.js";
-// import syncRoutes from "./modules/sync/sync.routes.js";
-// import statsRoutes from "./modules/stats/stats.routes.js";
+import { ticketRouter, ticketStandaloneRouter } from "./modules/tickets/ticket.routes.js";
+import syncRoutes from "./modules/sync/sync.routes.js";
 
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
 app.use("/api/events/:eventId/participants", participantRoutes);
-// app.use("/api/tickets", ticketRoutes);
-// app.use("/api/sync", syncRoutes);
-// app.use("/api/stats", statsRoutes);
+app.use("/api/events/:eventId/tickets", ticketRouter);
+app.use("/api/tickets", ticketStandaloneRouter);
+app.use("/api/events/:eventId/sync", syncRoutes);
+app.use("/api/events/:eventId/stats", syncRoutes);
 
 // ─── Health check ─────────────────────────────────────────────
 app.get("/health", (_req, res) => {

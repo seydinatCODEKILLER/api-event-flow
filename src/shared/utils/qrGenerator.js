@@ -25,30 +25,30 @@ export const verifyTicketPayload = (payload) => {
 };
 
 /**
- * Génère un QR code en base64 PNG à partir du payload JWT
- * @param {string} payload - JWT signé
- * @returns {Promise<string>} - base64 PNG (sans préfixe data:image)
+ * Génère un QR code en Buffer PNG
  */
-export const generateQrCodeBase64 = async (payload) => {
-  const dataUrl = await QRCode.toDataURL(payload, {
+export const generateQrCodeBuffer = async (payload) => {
+  return QRCode.toBuffer(payload, {
     errorCorrectionLevel: "H",
     margin: 2,
-    width: 300,
-    color: {
-      dark: "#000000",
-      light: "#FFFFFF",
-    },
+    width: 400,
+    color: { dark: "#000000", light: "#FFFFFF" },
   });
-
-  // Retirer le préfixe "data:image/png;base64,"
-  return dataUrl.split(",")[1];
 };
 
 /**
- * Génère payload JWT + QR code base64 en une seule opération
+ * Génère un QR code en base64 PNG (fallback email inline)
+ */
+export const generateQrCodeBase64 = async (payload) => {
+  const buffer = await generateQrCodeBuffer(payload);
+  return buffer.toString("base64");
+};
+
+/**
+ * Génère payload JWT + Buffer PNG en une seule opération
  */
 export const generateTicketQr = async (ticketId, eventId, participantId) => {
   const payload = generateTicketPayload(ticketId, eventId, participantId);
-  const qrBase64 = await generateQrCodeBase64(payload);
-  return { payload, qrBase64 };
+  const buffer = await generateQrCodeBuffer(payload);
+  return { payload, buffer };
 };

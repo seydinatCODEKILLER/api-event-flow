@@ -10,9 +10,11 @@ import {
   parseParticipantsCsv,
   deduplicateParticipants,
 } from "../../shared/utils/csvParser.js";
+import { TicketService } from "../tickets/ticket.service.js";
 
 const participantRepo = new ParticipantRepository();
 const eventRepo = new EventRepository();
+const ticketService = new TicketService();
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -82,7 +84,16 @@ export class ParticipantService {
       );
     }
 
-    return buildParticipantResponse(participant);
+    const { ticket, qrBase64 } = await ticketService.createTicket(
+      eventId,
+      participant.id,
+    );
+
+    return {
+      ...buildParticipantResponse(participant),
+      ticket,
+      qrBase64,
+    };
   }
 
   // ─── Import CSV ───────────────────────────────────────────────

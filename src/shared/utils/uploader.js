@@ -1,4 +1,5 @@
 import cloudinary from "../../config/cloudinary.js";
+import logger from "../../config/logger.js";
 
 class MediaUploader {
   constructor() {
@@ -6,10 +7,7 @@ class MediaUploader {
   }
 
   /**
-   * Upload un fichier vers Cloudinary
-   * @param {Object} file - Objet fichier multer (contenant buffer)
-   * @param {string} folder - Dossier de destination
-   * @param {string} prefix - Préfixe pour le public_id
+   * Upload un fichier multer (buffer + mimetype) vers Cloudinary
    */
   async upload(file, folder = "eventflow/avatars", prefix = "avatar") {
     if (!file || !file.buffer) return null;
@@ -40,29 +38,82 @@ class MediaUploader {
         public_id: result.public_id,
       };
     } catch (error) {
-      console.error("Upload failed:", error);
+      logger.error({ err: error }, "Upload multer file failed");
       throw error;
     }
   }
 
-  async rollback(prefix) {
-    const uploadInfo = this.uploadResults.get(prefix);
-    if (!uploadInfo) return;
+  /**
+   * Upload un Buffer brut (PNG, PDF, etc.) vers Cloudinary
+   * Utilisé pour les QR codes générés en mémoire
+   */
+  async uploadBuffer(
+    buffer,
+    folder = "eventflow/qrcodes",
+    prefix = "qr",
+    resourceType = "image",
+  ) {
+    if (!buffer) return null;
 
     try {
-      await cloudinary.uploader.destroy(uploadInfo.public_id, {
-        resource_type: "auto",
+      const result = await new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder,
+            public_id: `${prefix}_${Date.now()}`,
+            resource_type: resourceType,
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          },
+        );
+        stream.end(buffer);
       });
-      this.uploadResults.delete(prefix);
-      console.log(`Rollback successful - deleted: ${uploadInfo.public_id}`);
+
+      this.uploadResults.set(prefix, {
+        public_id: result.public_id,
+        url: result.secure_url,
+      });
+
+      logger.info(
+        { public_id: result.public_id, folder },
+        "Buffer uploaded to Cloudinary",
+      );
+
+      return {
+        url: result.secure_url,
+        public_id: result.public_id,
+      };
     } catch (error) {
-      console.error("Rollback failed:", error);
+      logger.error({ err: error }, "Upload buffer failed");
+      throw error;
+    }
+  }
+
+  async rollback(publicId) {
+    if (!publicId) return;
+    try {
+      await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
+      this.uploadResults.delete(publicId);
+      logger.info({ public_id: publicId }, "Rollback successful");
+    } catch (error) {
+      logger.error({ err: error }, "Rollback failed");
+    }
+  }
+
+  async deleteByPublicId(publicId) {
+    if (!publicId) return;
+    try {
+      await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
+      logger.info({ public_id: publicId }, "Media deleted");
+    } catch (error) {
+      logger.error({ err: error }, "Delete by public_id failed");
     }
   }
 
   async deleteByUrl(url) {
     if (!url) return;
-
     try {
       const urlParts = url.split("/");
       const uploadIndex = urlParts.indexOf("upload");
@@ -71,13 +122,12 @@ class MediaUploader {
         0,
         publicIdWithExtension.lastIndexOf("."),
       );
-
       if (publicId) {
         await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
-        console.log(`Deleted media: ${publicId}`);
+        logger.info({ public_id: publicId }, "Media deleted by URL");
       }
     } catch (error) {
-      console.error("Delete by URL failed:", error);
+      logger.error({ err: error }, "Delete by URL failed");
     }
   }
 }

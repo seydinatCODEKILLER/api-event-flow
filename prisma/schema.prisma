@@ -172,6 +172,8 @@ model Participant {
 model Ticket {
   id        String       @id @default(uuid())
   qrPayload String       @unique
+  qrUrl         String?
+  qrPublicId    String?
   status    TicketStatus @default(ACTIVE)
   usedAt    DateTime?
 

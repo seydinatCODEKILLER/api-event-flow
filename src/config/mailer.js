@@ -12,7 +12,8 @@ apiInstance.authentications["apiKey"].apiKey = env.BREVO_API_KEY;
  * @param {string} options.toName - Nom destinataire
  * @param {string} options.subject - Sujet
  * @param {string} options.html - Contenu HTML
- * @param {Array}  options.attachments - Pièces jointes [{ name, content (base64) }]
+ * @param {Array}  options.attachments - Pièces jointes [{ naname
+ * me, content (base64) }]
  */
 export const sendEmail = async ({ to, toName, subject, html, attachments = [] }) => {
   const sendSmtpEmail = new Brevo.SendSmtpEmail();
