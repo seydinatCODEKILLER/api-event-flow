@@ -23,7 +23,7 @@ export const swaggerOptions = {
         description: "Serveur de développement",
       },
       {
-        url: "https://eventflow-api.onrender.com",
+        url: "https://api-event-flow.onrender.com",
         description: "Serveur de production",
       },
     ],
