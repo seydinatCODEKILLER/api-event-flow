@@ -2,6 +2,8 @@ import { Router } from "express";
 import { EventController } from "./event.controller.js";
 import { validate } from "../../shared/middlewares/validate.middleware.js";
 import { authenticate, requireRole } from "../../shared/middlewares/auth.middleware.js";
+import { uploadSingle } from "../../shared/middlewares/upload.middleware.js";
+import { sanitizeBody } from "../../shared/middlewares/sanitize.middleware.js"; // ← AJOUT
 import { crudLimiter } from "../../config/rateLimiter.js";
 import {
   createEventSchema,
@@ -31,7 +33,7 @@ router.use(crudLimiter);
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             required: [title, location, startDate, capacity]
@@ -54,6 +56,10 @@ router.use(crudLimiter);
  *               capacity:
  *                 type: integer
  *                 example: 5000
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Image de couverture de l'événement
  *     responses:
  *       201:
  *         description: Événement créé avec succès
@@ -86,6 +92,8 @@ router.use(crudLimiter);
 router.post(
   "/",
   requireRole("ORGANIZER"),
+  uploadSingle("image"),
+  sanitizeBody,
   validate(createEventSchema),
   eventController.createEvent
 );
@@ -239,7 +247,7 @@ router.get(
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             minProperties: 1
@@ -269,25 +277,10 @@ router.get(
  *                 type: string
  *                 enum: [DRAFT, PUBLISHED, ONGOING, CLOSED]
  *                 example: "PUBLISHED"
- *           examples:
- *             publication:
- *               summary: Publier un événement
- *               value:
- *                 status: "PUBLISHED"
- *             modification_lieu:
- *               summary: Changer le lieu et la capacité
- *               value:
- *                 location: "Stade Léopold Sédar Senghor"
- *                 capacity: 8000
- *             modification_complete:
- *               summary: Modification complète
- *               value:
- *                 title: "Concert Edition Spéciale"
- *                 location: "Dakar Arena"
- *                 startDate: "2025-12-01T20:00:00Z"
- *                 endDate: "2025-12-01T23:30:00Z"
- *                 capacity: 5000
- *                 status: "PUBLISHED"
+ *               image:
+ *                 type: string
+ *                 format: binary
+ *                 description: Nouvelle image de couverture (remplace l'ancienne)
  *     responses:
  *       200:
  *         description: Événement mis à jour avec succès
@@ -310,19 +303,6 @@ router.get(
  *           application/json:
  *             schema:
  *               $ref: '#/components/schemas/Error'
- *             examples:
- *               validation:
- *                 summary: Erreur de validation
- *                 value:
- *                   success: false
- *                   code: "VALIDATION_ERROR"
- *                   message: "Au moins un champ doit être fourni"
- *               cloture:
- *                 summary: Événement clôturé
- *                 value:
- *                   success: false
- *                   code: "BAD_REQUEST"
- *                   message: "Un événement clôturé ne peut plus être modifié"
  *       403:
  *         description: Non propriétaire de l'événement
  *         content:
@@ -339,6 +319,8 @@ router.get(
 router.patch(
   "/:id",
   requireRole("ORGANIZER"),
+  uploadSingle("image"),
+  sanitizeBody,
   validate(updateEventSchema),
   eventController.updateEvent
 );

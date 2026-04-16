@@ -5,6 +5,7 @@ import {
   ConflictError,
   BadRequestError,
 } from "../../shared/errors/AppError.js";
+import MediaUploader from "../../shared/utils/uploader.js";
 
 const eventRepo = new EventRepository();
 
@@ -18,6 +19,7 @@ const buildEventResponse = (event) => ({
   endDate: event.endDate ?? null,
   capacity: event.capacity,
   status: event.status,
+  imageUrl: event.imageUrl ?? null,
   organizer: event.organizer ?? undefined,
   moderators:
     event.moderators?.map((m) => ({
@@ -34,7 +36,7 @@ const buildEventResponse = (event) => ({
 
 export class EventService {
   // ─── Créer un événement ───────────────────────────────────────
-  async createEvent(organizerId, data) {
+  async createEvent(organizerId, data, file = null) {
     const { title, location, startDate, endDate, capacity } = data;
 
     if (endDate && new Date(endDate) <= new Date(startDate)) {
@@ -43,16 +45,41 @@ export class EventService {
       );
     }
 
-    const event = await eventRepo.create({
-      title,
-      location,
-      startDate: new Date(startDate),
-      endDate: endDate ? new Date(endDate) : null,
-      capacity,
-      organizerId,
-    });
+    const uploader = new MediaUploader();
+    let imageUrl = null;
+    let imagePublicId = null;
 
-    return buildEventResponse(event);
+    // 1. Upload l'image si présente
+    if (file) {
+      const result = await uploader.upload(
+        file,
+        "eventflow/events",
+        `event_${Date.now()}`,
+      );
+      imageUrl = result.url;
+      imagePublicId = result.public_id;
+    }
+
+    try {
+      // 2. Créer l'événement avec l'image
+      const event = await eventRepo.create({
+        title,
+        location,
+        startDate: new Date(startDate),
+        endDate: endDate ? new Date(endDate) : null,
+        capacity,
+        organizerId,
+        imageUrl,
+        imagePublicId,
+      });
+
+      return buildEventResponse(event);
+    } catch (error) {
+      if (imagePublicId) {
+        await uploader.deleteByPublicId(imagePublicId).catch(() => {});
+      }
+      throw error;
+    }
   }
 
   // ─── Lister les événements ────────────────────────────────────
@@ -95,7 +122,7 @@ export class EventService {
   }
 
   // ─── Modifier un événement ────────────────────────────────────
-  async updateEvent(eventId, organizerId, data) {
+  async updateEvent(eventId, organizerId, data, file = null) {
     const event = await eventRepo.findById(eventId);
     if (!event) throw new NotFoundError("Événement");
     if (event.organizerId !== organizerId) {
@@ -120,18 +147,49 @@ export class EventService {
       );
     }
 
-    const updated = await eventRepo.updateEvent(eventId, {
-      ...(data.title && { title: data.title }),
-      ...(data.location && { location: data.location }),
-      ...(startDate && { startDate: new Date(startDate) }),
-      ...(endDate !== undefined && {
-        endDate: endDate ? new Date(endDate) : null,
-      }),
-      ...(data.capacity && { capacity: data.capacity }),
-      ...(data.status && { status: data.status }),
-    });
+    const uploader = new MediaUploader();
+    let newImageUrl = null;
+    let newImagePublicId = null;
 
-    return buildEventResponse(updated);
+    // 1. Upload la nouvelle image si fournie
+    if (file) {
+      const result = await uploader.upload(
+        file,
+        "eventflow/events",
+        `event_${eventId}_${Date.now()}`,
+      );
+      newImageUrl = result.url;
+      newImagePublicId = result.public_id;
+    }
+
+    try {
+      // 2. Mettre à jour l'événement
+      const updated = await eventRepo.updateEvent(eventId, {
+        ...(data.title && { title: data.title }),
+        ...(data.location && { location: data.location }),
+        ...(startDate && { startDate: new Date(startDate) }),
+        ...(endDate !== undefined && {
+          endDate: endDate ? new Date(endDate) : null,
+        }),
+        ...(data.capacity && { capacity: data.capacity }),
+        ...(data.status && { status: data.status }),
+        // Écraser l'image seulement si une nouvelle a été uploadée
+        ...(newImageUrl && { imageUrl: newImageUrl }),
+        ...(newImagePublicId && { imagePublicId: newImagePublicId }),
+      });
+
+      // 3. Supprimer l'ancienne image de Cloudinary si remplacement réussi
+      if (newImagePublicId && event.imagePublicId) {
+        await uploader.deleteByPublicId(event.imagePublicId).catch(() => {});
+      }
+
+      return buildEventResponse(updated);
+    } catch (error) {
+      if (newImagePublicId) {
+        await uploader.deleteByPublicId(newImagePublicId).catch(() => {});
+      }
+      throw error;
+    }
   }
 
   // ─── Supprimer un événement ───────────────────────────────────
@@ -150,9 +208,14 @@ export class EventService {
       );
     }
 
+    if (event.imagePublicId) {
+      const uploader = new MediaUploader();
+      await uploader.deleteByPublicId(event.imagePublicId).catch(() => {});
+    }
+
     await eventRepo.deleteEvent(eventId);
   }
-
+  
   // ─── Assigner un modérateur ───────────────────────────────────
   async addModerator(eventId, organizerId, moderatorId) {
     const event = await eventRepo.findById(eventId);
@@ -166,7 +229,7 @@ export class EventService {
     // Vérifier que le modérateur existe et a le bon rôle
     const moderator = await eventRepo.prisma.user.findUnique({
       where: { id: moderatorId },
-      select: { id: true, role: true, nom: true, prenom: true},
+      select: { id: true, role: true, nom: true, prenom: true },
     });
 
     if (!moderator) throw new NotFoundError("Modérateur");

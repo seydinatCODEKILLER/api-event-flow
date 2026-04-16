@@ -8,6 +8,7 @@ export class EventController {
       const result = await eventService.createEvent(
         req.user.id,
         req.validated.body,
+        req.file
       );
       res.status(201).json({
         success: true,
@@ -59,6 +60,7 @@ export class EventController {
         req.validated.params.id,
         req.user.id,
         req.validated.body,
+        req.file
       );
       res.status(200).json({
         success: true,

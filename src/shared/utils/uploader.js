@@ -94,7 +94,7 @@ class MediaUploader {
   async rollback(publicId) {
     if (!publicId) return;
     try {
-      await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
+      await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
       this.uploadResults.delete(publicId);
       logger.info({ public_id: publicId }, "Rollback successful");
     } catch (error) {
@@ -105,7 +105,7 @@ class MediaUploader {
   async deleteByPublicId(publicId) {
     if (!publicId) return;
     try {
-      await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
+      await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
       logger.info({ public_id: publicId }, "Media deleted");
     } catch (error) {
       logger.error({ err: error }, "Delete by public_id failed");
@@ -123,7 +123,7 @@ class MediaUploader {
         publicIdWithExtension.lastIndexOf("."),
       );
       if (publicId) {
-        await cloudinary.uploader.destroy(publicId, { resource_type: "auto" });
+        await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
         logger.info({ public_id: publicId }, "Media deleted by URL");
       }
     } catch (error) {

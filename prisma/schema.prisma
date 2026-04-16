@@ -109,6 +109,8 @@ model Event {
   endDate   DateTime?
   capacity  Int
   status    EventStatus @default(DRAFT)
+  imageUrl  String?
+  imagePublicId  String? 
 
   organizerId String
   organizer   User        @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
