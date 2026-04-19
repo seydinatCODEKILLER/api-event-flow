@@ -19,7 +19,7 @@ export const createEventSchema = z.object({
         message: "Date de fin invalide",
       })
       .optional(),
-    capacity: z
+    capacity: z.coerce
       .number()
       .int("La capacité doit être un entier")
       .positive("La capacité doit être positive"),
@@ -47,7 +47,12 @@ export const updateEventSchema = z.object({
         })
         .nullable()
         .optional(),
-      capacity: z.number().int().positive().optional(),
+      capacity: z.coerce
+        .number()
+        .int("La capacité doit être un entier")
+        .positive("La capacité doit être positive")
+        .optional(),
+
       status: z
         .enum(["DRAFT", "PUBLISHED", "ONGOING", "CLOSED"], {
           errorMap: () => ({ message: "Statut invalide" }),
@@ -67,9 +72,7 @@ export const getEventsSchema = z.object({
   query: z.object({
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(50).default(10),
-    status: z
-      .enum(["DRAFT", "PUBLISHED", "ONGOING", "CLOSED"])
-      .optional(),
+    status: z.enum(["DRAFT", "PUBLISHED", "ONGOING", "CLOSED"]).optional(),
   }),
 });
 
