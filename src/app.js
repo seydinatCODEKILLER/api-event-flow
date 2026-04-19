@@ -34,6 +34,7 @@ import participantRoutes from "./modules/participants/participant.routes.js";
 import { ticketRouter, ticketStandaloneRouter } from "./modules/tickets/ticket.routes.js";
 import syncRoutes from "./modules/sync/sync.routes.js";
 import { publicRoutes } from "./modules/public/index.js";
+import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
 
 app.use("/api/public", publicRoutes);
 
@@ -44,6 +45,7 @@ app.use("/api/events/:eventId/tickets", ticketRouter);
 app.use("/api/tickets", ticketStandaloneRouter);
 app.use("/api/events/:eventId/sync", syncRoutes);
 app.use("/api/events/:eventId/stats", syncRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 
 // ─── Health check ─────────────────────────────────────────────
 app.get("/health", (_req, res) => {
