@@ -52,12 +52,6 @@ export const updateEventSchema = z.object({
         .int("La capacité doit être un entier")
         .positive("La capacité doit être positive")
         .optional(),
-
-      status: z
-        .enum(["DRAFT", "PUBLISHED", "ONGOING", "CLOSED"], {
-          errorMap: () => ({ message: "Statut invalide" }),
-        })
-        .optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
       message: "Au moins un champ doit être fourni",
@@ -88,4 +82,12 @@ export const removeModeratorSchema = z.object({
     eventId: uuidSchema,
     moderatorId: uuidSchema,
   }),
+});
+
+export const publishEventSchema = z.object({
+  params: z.object({ id: uuidSchema }),
+});
+
+export const closeEventSchema = z.object({
+  params: z.object({ id: uuidSchema }),
 });

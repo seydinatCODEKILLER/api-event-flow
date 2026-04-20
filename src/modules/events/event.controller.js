@@ -8,7 +8,7 @@ export class EventController {
       const result = await eventService.createEvent(
         req.user.id,
         req.validated.body,
-        req.file
+        req.file,
       );
       res.status(201).json({
         success: true,
@@ -60,7 +60,7 @@ export class EventController {
         req.validated.params.id,
         req.user.id,
         req.validated.body,
-        req.file
+        req.file,
       );
       res.status(200).json({
         success: true,
@@ -126,6 +126,38 @@ export class EventController {
       );
       res.status(200).json({
         success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async publishEvent(req, res, next) {
+    try {
+      const result = await eventService.publishEvent(
+        req.validated.params.id,
+        req.user.id,
+      );
+      res.status(200).json({
+        success: true,
+        message: "Événement publié avec succès",
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async closeEvent(req, res, next) {
+    try {
+      const result = await eventService.closeEvent(
+        req.validated.params.id,
+        req.user.id,
+      );
+      res.status(200).json({
+        success: true,
+        message: "Événement clôturé avec succès",
         data: result,
       });
     } catch (error) {

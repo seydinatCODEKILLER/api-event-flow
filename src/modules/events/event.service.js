@@ -32,6 +32,15 @@ const buildEventResponse = (event) => ({
   updatedAt: event.updatedAt,
 });
 
+const assertOwner = async (eventId, organizerId) => {
+  const event = await eventRepo.findById(eventId);
+  if (!event) throw new NotFoundError("Événement");
+  if (event.organizerId !== organizerId) {
+    throw new ForbiddenError("Vous n'êtes pas l'organisateur de cet événement");
+  }
+  return event;
+};
+
 // ─── Service ──────────────────────────────────────────────────
 
 export class EventService {
@@ -123,13 +132,9 @@ export class EventService {
 
   // ─── Modifier un événement ────────────────────────────────────
   async updateEvent(eventId, organizerId, data, file = null) {
-    const event = await eventRepo.findById(eventId);
+    const event = await assertOwner(eventId, organizerId);
+
     if (!event) throw new NotFoundError("Événement");
-    if (event.organizerId !== organizerId) {
-      throw new ForbiddenError(
-        "Vous n'êtes pas l'organisateur de cet événement",
-      );
-    }
 
     if (event.status === "CLOSED") {
       throw new BadRequestError(
@@ -215,7 +220,7 @@ export class EventService {
 
     await eventRepo.deleteEvent(eventId);
   }
-  
+
   // ─── Assigner un modérateur ───────────────────────────────────
   async addModerator(eventId, organizerId, moderatorId) {
     const event = await eventRepo.findById(eventId);
@@ -279,5 +284,48 @@ export class EventService {
     }
 
     return eventRepo.findModerators(eventId);
+  }
+
+  async publishEvent(eventId, organizerId) {
+    const event = await assertOwner(eventId, organizerId);
+
+    // Règle 1 : Un événement clôturé ne peut pas être publié
+    if (event.status === "CLOSED") {
+      throw new BadRequestError(
+        "Un événement clôturé ne peut plus être publié",
+      );
+    }
+
+    // Règle 2 : On ne publie pas deux fois (évite les appels inutiles)
+    if (event.status === "PUBLISHED") {
+      throw new BadRequestError("Cet événement est déjà publié");
+    }
+
+    // Transition autorisée : DRAFT -> PUBLISHED (ou ONGOING -> PUBLISHED si on veut permettre la pause)
+    const updated = await eventRepo.updateEvent(eventId, {
+      status: "PUBLISHED",
+    });
+    return buildEventResponse(updated);
+  }
+
+  // ✅ NOUVEAU : Clôturer un événement ──────────────────────
+  async closeEvent(eventId, organizerId) {
+    const event = await assertOwner(eventId, organizerId);
+
+    // Règle 1 : On ne clôt pas un événement déjà clôturé
+    if (event.status === "CLOSED") {
+      throw new BadRequestError("Cet événement est déjà clôturé");
+    }
+
+    // Règle 2 : On ne clôt pas un brouillon (il doit être publié au moins une fois)
+    if (event.status === "DRAFT") {
+      throw new BadRequestError(
+        "Impossible de clôturer un brouillon. Publiez l'événement d'abord.",
+      );
+    }
+
+    // Transition autorisée : PUBLISHED ou ONGOING -> CLOSED
+    const updated = await eventRepo.updateEvent(eventId, { status: "CLOSED" });
+    return buildEventResponse(updated);
   }
 }

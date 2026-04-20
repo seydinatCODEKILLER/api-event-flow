@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { EventController } from "./event.controller.js";
 import { validate } from "../../shared/middlewares/validate.middleware.js";
-import { authenticate, requireRole } from "../../shared/middlewares/auth.middleware.js";
+import {
+  authenticate,
+  requireRole,
+} from "../../shared/middlewares/auth.middleware.js";
 import { uploadSingle } from "../../shared/middlewares/upload.middleware.js";
 import { sanitizeBody } from "../../shared/middlewares/sanitize.middleware.js"; // ← AJOUT
 import { crudLimiter } from "../../config/rateLimiter.js";
@@ -12,6 +15,8 @@ import {
   getEventsSchema,
   addModeratorSchema,
   removeModeratorSchema,
+  publishEventSchema,
+  closeEventSchema,
 } from "./event.validator.js";
 
 const router = Router();
@@ -95,7 +100,7 @@ router.post(
   uploadSingle("image"),
   sanitizeBody,
   validate(createEventSchema),
-  eventController.createEvent
+  eventController.createEvent,
 );
 
 /**
@@ -169,7 +174,7 @@ router.get(
   "/",
   requireRole("ORGANIZER"),
   validate(getEventsSchema),
-  eventController.getEvents
+  eventController.getEvents,
 );
 
 /**
@@ -218,11 +223,7 @@ router.get(
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.get(
-  "/:id",
-  validate(eventIdSchema),
-  eventController.getEventById
-);
+router.get("/:id", validate(eventIdSchema), eventController.getEventById);
 
 /**
  * @swagger
@@ -322,7 +323,7 @@ router.patch(
   uploadSingle("image"),
   sanitizeBody,
   validate(updateEventSchema),
-  eventController.updateEvent
+  eventController.updateEvent,
 );
 
 /**
@@ -382,7 +383,73 @@ router.delete(
   "/:id",
   requireRole("ORGANIZER"),
   validate(eventIdSchema),
-  eventController.deleteEvent
+  eventController.deleteEvent,
+);
+
+/**
+ * @swagger
+ * /api/events/{id}/publish:
+ *   post:
+ *     summary: Publier un événement
+ *     description: |
+ *       Transition l'événement vers le statut PUBLISHED.
+ *       Impossible si l'événement est déjà publié ou clôturé.
+ *     tags: [Events]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Événement publié
+ *       400:
+ *         description: Événement déjà publié ou clôturé
+ *       403:
+ *         description: Non propriétaire
+ */
+router.post(
+  "/:id/publish",
+  requireRole("ORGANIZER"),
+  validate(publishEventSchema),
+  eventController.publishEvent,
+);
+
+/**
+ * @swagger
+ * /api/events/{id}/close:
+ *   post:
+ *     summary: Clôturer un événement
+ *     description: |
+ *       Transition l'événement vers le statut CLOSED.
+ *       Impossible si l'événement est un brouillon ou déjà clôturé.
+ *     tags: [Events]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Événement clôturé
+ *       400:
+ *         description: Brouillon ou déjà clôturé
+ *       403:
+ *         description: Non propriétaire
+ */
+router.post(
+  "/:id/close",
+  requireRole("ORGANIZER"),
+  validate(closeEventSchema),
+  eventController.closeEvent,
 );
 
 // ─── Modérateurs ──────────────────────────────────────────────
@@ -451,7 +518,7 @@ router.delete(
 router.get(
   "/:id/moderators",
   validate(eventIdSchema),
-  eventController.getModerators
+  eventController.getModerators,
 );
 
 /**
@@ -547,7 +614,7 @@ router.post(
   "/:id/moderators",
   requireRole("ORGANIZER"),
   validate(addModeratorSchema),
-  eventController.addModerator
+  eventController.addModerator,
 );
 
 /**
@@ -605,7 +672,7 @@ router.delete(
   "/:eventId/moderators/:moderatorId",
   requireRole("ORGANIZER"),
   validate(removeModeratorSchema),
-  eventController.removeModerator
+  eventController.removeModerator,
 );
 
 export default router;
