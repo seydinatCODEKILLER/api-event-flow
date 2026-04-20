@@ -525,11 +525,12 @@ router.get(
  * @swagger
  * /api/events/{id}/moderators:
  *   post:
- *     summary: Assigner un modérateur à un événement
+ *     summary: Créer et assigner un modérateur
  *     description: |
  *       Réservé à l'organisateur propriétaire.
- *       L'utilisateur ciblé doit avoir le rôle MODERATOR.
- *       Un modérateur ne peut être assigné qu'une seule fois par événement.
+ *       Crée le compte modérateur avec un mot de passe temporaire et l'assigne
+ *       immédiatement à l'événement.
+ *       Si un compte modérateur existe déjà avec cet email, il est simplement assigné.
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
@@ -540,79 +541,43 @@ router.get(
  *         schema:
  *           type: string
  *           format: uuid
- *         description: Identifiant de l'événement
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:           # ← CHANGÉ ICI
  *           schema:
  *             type: object
- *             required: [moderatorId]
+ *             required: [nom, prenom, email, password]
  *             properties:
- *               moderatorId:
+ *               nom:
  *                 type: string
- *                 format: uuid
- *                 example: "b2c3d4e5-f6a7-8901-bcde-f01234567890"
+ *                 example: "Ndiaye"
+ *               prenom:
+ *                 type: string
+ *                 example: "Moussa"
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: "moussa@eventflow.com"
+ *               password:
+ *                 type: string
+ *                 format: password
+ *                 example: "Password123"
+ *               avatar:                     # ← AJOUTÉ ICI
+ *                 type: string
+ *                 format: binary
+ *                 description: Photo de profil du modérateur
  *     responses:
  *       201:
- *         description: Modérateur assigné avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Modérateur assigné avec succès"
- *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                       format: uuid
- *                     name:
- *                       type: string
- *                       example: "Moussa Ndiaye"
- *                     email:
- *                       type: string
- *                       example: "moussa@eventflow.com"
- *                     avatarUrl:
- *                       type: string
- *                       nullable: true
- *                     assignedAt:
- *                       type: string
- *                       format: date-time
- *       400:
- *         description: L'utilisateur n'est pas un modérateur
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       403:
- *         description: Non propriétaire de l'événement
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: Événement ou modérateur introuvable
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: Modérateur créé et assigné
  *       409:
- *         description: Modérateur déjà assigné à cet événement
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: Email déjà utilisé
  */
 router.post(
   "/:id/moderators",
   requireRole("ORGANIZER"),
+  uploadSingle("avatar"),
+  sanitizeBody,
   validate(addModeratorSchema),
   eventController.addModerator,
 );

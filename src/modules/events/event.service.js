@@ -6,6 +6,8 @@ import {
   BadRequestError,
 } from "../../shared/errors/AppError.js";
 import MediaUploader from "../../shared/utils/uploader.js";
+import { hashPassword } from "../../shared/utils/hasher.js";
+
 
 const eventRepo = new EventRepository();
 
@@ -222,7 +224,7 @@ export class EventService {
   }
 
   // ─── Assigner un modérateur ───────────────────────────────────
-  async addModerator(eventId, organizerId, moderatorId) {
+  async addModerator(eventId, organizerId, moderatorData, file = null) {
     const event = await eventRepo.findById(eventId);
     if (!event) throw new NotFoundError("Événement");
     if (event.organizerId !== organizerId) {
@@ -231,29 +233,102 @@ export class EventService {
       );
     }
 
-    // Vérifier que le modérateur existe et a le bon rôle
-    const moderator = await eventRepo.prisma.user.findUnique({
-      where: { id: moderatorId },
-      select: { id: true, role: true, nom: true, prenom: true },
+    const { nom, prenom, email, password } = moderatorData;
+
+    // 1. Vérifier si l'email n'est pas déjà utilisé
+    const existingUser = await eventRepo.prisma.user.findUnique({
+      where: { email },
     });
 
-    if (!moderator) throw new NotFoundError("Modérateur");
-    if (moderator.role !== "MODERATOR") {
-      throw new BadRequestError("Cet utilisateur n'est pas un modérateur");
+    if (existingUser) {
+      if (existingUser.role === "MODERATOR") {
+        const existingAssignment = await eventRepo.findModerator(
+          eventId,
+          existingUser.id,
+        );
+        if (existingAssignment) {
+          throw new ConflictError(
+            "Ce modérateur est déjà assigné à cet événement",
+          );
+        }
+        const assignment = await eventRepo.addModerator(
+          eventId,
+          existingUser.id,
+        );
+        return {
+          ...assignment.user,
+          assignedAt: assignment.assignedAt,
+          message: "Modérateur existant assigné avec succès",
+        };
+      }
+      throw new ConflictError(
+        "Un compte avec cet email existe déjà avec un rôle différent",
+      );
     }
 
-    // Vérifier qu'il n'est pas déjà assigné
-    const existing = await eventRepo.findModerator(eventId, moderatorId);
-    if (existing) {
-      throw new ConflictError("Ce modérateur est déjà assigné à cet événement");
+    // 2. Hasher le mot de passe temporaire
+    const hashedPassword = await hashPassword(password);
+
+    // 3. Upload l'avatar si fourni
+    const uploader = new MediaUploader();
+    let avatarUrl = null;
+    let avatarPublicId = null;
+
+    if (file) {
+      const result = await uploader.upload(
+        file,
+        "eventflow/avatars",
+        `moderator_${Date.now()}`,
+      );
+      avatarUrl = result.url;
+      avatarPublicId = result.public_id;
     }
 
-    const assignment = await eventRepo.addModerator(eventId, moderatorId);
+    // 4. Transaction : Création du compte + Assignation
+    try {
+      const newModerator = await eventRepo.prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            nom,
+            prenom,
+            email,
+            password: hashedPassword,
+            role: "MODERATOR",
+            avatarUrl,
+            avatarPublicId,
+          },
+        });
 
-    return {
-      ...assignment.user,
-      assignedAt: assignment.assignedAt,
-    };
+        const assignment = await tx.eventModerator.create({
+          data: { eventId, userId: user.id },
+          include: {
+            user: {
+              select: {
+                id: true,
+                nom: true,
+                prenom: true,
+                email: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        });
+
+        return assignment;
+      });
+
+      return {
+        ...newModerator.user,
+        assignedAt: newModerator.assignedAt,
+        message:
+          "Modérateur créé et assigné avec succès. Partagez ses identifiants de connexion.",
+      };
+    } catch (error) {
+      if (avatarPublicId) {
+        await uploader.deleteByPublicId(avatarPublicId).catch(() => {});
+      }
+      throw error;
+    }
   }
 
   // ─── Retirer un modérateur ────────────────────────────────────

@@ -89,11 +89,12 @@ export class EventController {
       const result = await eventService.addModerator(
         req.validated.params.id,
         req.user.id,
-        req.validated.body.moderatorId,
+        req.validated.body,
+        req.file,
       );
       res.status(201).json({
         success: true,
-        message: "Modérateur assigné avec succès",
+        message: result.message || "Modérateur assigné avec succès",
         data: result,
       });
     } catch (error) {

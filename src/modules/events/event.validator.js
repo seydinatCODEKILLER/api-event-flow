@@ -73,7 +73,16 @@ export const getEventsSchema = z.object({
 export const addModeratorSchema = z.object({
   params: z.object({ id: uuidSchema }),
   body: z.object({
-    moderatorId: uuidSchema,
+    nom: z.string().min(2, "Le nom doit contenir au moins 2 caractères"),
+    prenom: z.string().min(2, "Le prénom doit contenir au moins 2 caractères"),
+    email: z.string().email("Email invalide"),
+    password: z
+      .string()
+      .min(8, "Le mot de passe doit contenir au moins 8 caractères")
+      .regex(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/,
+        "Doit contenir une majuscule, une minuscule et un chiffre",
+      ),
   }),
 });
 
