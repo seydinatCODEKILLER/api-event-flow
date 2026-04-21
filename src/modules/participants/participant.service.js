@@ -139,15 +139,10 @@ export class ParticipantService {
       const emailsToFind = toCreate.map((p) => p.email).filter(Boolean);
       const phonesToFind = toCreate.map((p) => p.phone).filter(Boolean);
 
-      const newParticipants = await participantRepo.findMany({
-        where: {
-          OR: [
-            ...(emailsToFind.length ? [{ email: { in: emailsToFind } }] : []),
-            ...(phonesToFind.length ? [{ phone: { in: phonesToFind } }] : []),
-          ],
-        },
-        select: { id: true },
-      });
+      const newParticipants = await participantRepo.findManyByEmailsOrPhones(
+        emailsToFind,
+        phonesToFind,
+      );
 
       await Promise.allSettled(
         newParticipants.map((p) => ticketService.createTicket(eventId, p.id)),

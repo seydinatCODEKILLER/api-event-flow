@@ -134,4 +134,17 @@ export class ParticipantRepository extends BaseRepository {
       },
     });
   }
+
+  // participant.repository.js — ajoute cette méthode
+  findManyByEmailsOrPhones(emails, phones) {
+    return prisma.participant.findMany({
+      where: {
+        OR: [
+          ...(emails.length ? [{ email: { in: emails } }] : []),
+          ...(phones.length ? [{ phone: { in: phones } }] : []),
+        ],
+      },
+      select: { id: true },
+    });
+  }
 }
