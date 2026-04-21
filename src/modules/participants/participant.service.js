@@ -130,15 +130,33 @@ export class ParticipantService {
 
     const { toCreate, skipped } = deduplicateParticipants(valid, existingList);
 
-    // ─── Insertion ────────────────────────────────────────────
-    const created =
-      toCreate.length > 0
-        ? await participantRepo.createMany(toCreate)
-        : { count: 0 };
+    // ─── Insertion des participants ──────────────────────────
+    let createdCount = 0;
+    if (toCreate.length > 0) {
+      await participantRepo.createMany(toCreate);
+      createdCount = toCreate.length;
+
+      const emailsToFind = toCreate.map((p) => p.email).filter(Boolean);
+      const phonesToFind = toCreate.map((p) => p.phone).filter(Boolean);
+
+      const newParticipants = await participantRepo.findMany({
+        where: {
+          OR: [
+            ...(emailsToFind.length ? [{ email: { in: emailsToFind } }] : []),
+            ...(phonesToFind.length ? [{ phone: { in: phonesToFind } }] : []),
+          ],
+        },
+        select: { id: true },
+      });
+
+      await Promise.allSettled(
+        newParticipants.map((p) => ticketService.createTicket(eventId, p.id)),
+      );
+    }
 
     return {
       total,
-      imported: created.count,
+      imported: createdCount,
       skipped: skipped.length,
       skippedDetails: skipped,
       invalidLines: invalid.length,
