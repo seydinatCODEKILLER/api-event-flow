@@ -21,6 +21,7 @@ const buildPublicEventResponse = (event) => {
     startDate: event.startDate,
     endDate: event.endDate ?? null,
     capacity: event.capacity,
+    imageUrl: event.imageUrl ?? null,
     remainingSpots: Math.max(0, event.capacity - ticketsCount),
     status: event.status,
     isFull: ticketsCount >= event.capacity,
