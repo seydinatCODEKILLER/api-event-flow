@@ -147,4 +147,17 @@ export class ParticipantRepository extends BaseRepository {
       select: { id: true },
     });
   }
+
+  findExistingByEmailsOrPhonesAndEvent(emails, phones, eventId) {
+    return prisma.participant.findMany({
+      where: {
+        tickets: { some: { eventId } },
+        OR: [
+          ...(emails.length ? [{ email: { in: emails } }] : []),
+          ...(phones.length ? [{ phone: { in: phones } }] : []),
+        ],
+      },
+      select: { id: true, email: true, phone: true },
+    });
+  }
 }

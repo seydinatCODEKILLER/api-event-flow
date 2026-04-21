@@ -106,10 +106,8 @@ export class ParticipantService {
       );
     }
 
-    // ─── Parse + validation CSV ───────────────────────────────
     const { valid, invalid, total } = parseParticipantsCsv(fileBuffer);
 
-    // Vérifier la capacité restante
     const currentCount = await participantRepo.countByEvent(eventId);
     const remaining = event.capacity - currentCount;
 
@@ -119,33 +117,96 @@ export class ParticipantService {
       );
     }
 
-    // ─── Dédoublonnage ────────────────────────────────────────
     const emails = valid.map((p) => p.email).filter(Boolean);
     const phones = valid.map((p) => p.phone).filter(Boolean);
 
-    const existingList = await participantRepo.findExistingByEmailsOrPhones(
-      emails,
-      phones,
+    // Participants qui existent déjà en base (tous événements confondus)
+    const existingParticipants =
+      await participantRepo.findExistingByEmailsOrPhones(emails, phones);
+
+    // Participants qui ont DÉJÀ un ticket pour CET événement précis
+    const alreadyInEvent =
+      await participantRepo.findExistingByEmailsOrPhonesAndEvent(
+        emails,
+        phones,
+        eventId,
+      );
+
+    const alreadyInEventEmails = new Set(
+      alreadyInEvent.map((p) => p.email).filter(Boolean),
+    );
+    const alreadyInEventPhones = new Set(
+      alreadyInEvent.map((p) => p.phone).filter(Boolean),
     );
 
-    const { toCreate, skipped } = deduplicateParticipants(valid, existingList);
+    // Participants connus en base mais pas encore dans cet événement → juste créer le ticket
+    const existingEmails = new Set(
+      existingParticipants.map((p) => p.email).filter(Boolean),
+    );
+    const existingPhones = new Set(
+      existingParticipants.map((p) => p.phone).filter(Boolean),
+    );
 
-    // ─── Insertion des participants ──────────────────────────
+    const skipped = [];
+    const toCreate = [];
+    const toAddTicketOnly = []; // ← connus en base, nouveaux dans cet event
+
+    for (const p of valid) {
+      const inEvent =
+        (p.email && alreadyInEventEmails.has(p.email)) ||
+        (p.phone && alreadyInEventPhones.has(p.phone));
+
+      if (inEvent) {
+        skipped.push({
+          fullName: p.fullName,
+          reason: "déjà inscrit à cet événement",
+        });
+        continue;
+      }
+
+      const existsGlobally =
+        (p.email && existingEmails.has(p.email)) ||
+        (p.phone && existingPhones.has(p.phone));
+
+      if (existsGlobally) {
+        // Existe en base mais pas dans cet event → on lui crée juste un ticket
+        const existing = existingParticipants.find(
+          (e) =>
+            (p.email && e.email === p.email) ||
+            (p.phone && e.phone === p.phone),
+        );
+        if (existing) toAddTicketOnly.push(existing);
+      } else {
+        toCreate.push(p);
+      }
+    }
+
     let createdCount = 0;
+
+    // Créer les nouveaux participants + leurs tickets
     if (toCreate.length > 0) {
       await participantRepo.createMany(toCreate);
-      createdCount = toCreate.length;
+      createdCount += toCreate.length;
 
       const emailsToFind = toCreate.map((p) => p.email).filter(Boolean);
       const phonesToFind = toCreate.map((p) => p.phone).filter(Boolean);
 
-      const newParticipants = await participantRepo.findManyByEmailsOrPhones(
-        emailsToFind,
-        phonesToFind,
-      );
+      const newParticipants =
+        await participantRepo.findExistingByEmailsOrPhones(
+          emailsToFind,
+          phonesToFind,
+        );
 
       await Promise.allSettled(
         newParticipants.map((p) => ticketService.createTicket(eventId, p.id)),
+      );
+    }
+
+    // Créer uniquement les tickets pour les participants déjà connus
+    if (toAddTicketOnly.length > 0) {
+      createdCount += toAddTicketOnly.length;
+      await Promise.allSettled(
+        toAddTicketOnly.map((p) => ticketService.createTicket(eventId, p.id)),
       );
     }
 
