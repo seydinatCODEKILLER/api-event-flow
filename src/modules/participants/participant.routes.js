@@ -14,8 +14,9 @@ import {
   participantIdSchema,
   updateParticipantSchema,
 } from "./participant.validator.js";
+import { uploadCsv } from "../../shared/middlewares/upload-csv.middleware.js";
 
-const router = Router({ mergeParams: true }); // ← mergeParams pour récupérer :eventId
+const router = Router({ mergeParams: true });
 const participantController = new ParticipantController();
 
 router.use(authenticate);
@@ -166,7 +167,7 @@ router.post(
 router.post(
   "/import",
   requireRole("ORGANIZER"),
-  uploadSingle("file"),
+  uploadCsv,
   validate(importCsvSchema),
   participantController.importFromCsv,
 );
