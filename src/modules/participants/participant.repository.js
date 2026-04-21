@@ -116,8 +116,9 @@ export class ParticipantRepository extends BaseRepository {
     });
   }
 
-  // Retrouve les participants par email ou phone pour dédoublonner
   findExistingByEmailsOrPhones(emails, phones) {
+    // CORRECTION : On utilise prisma.participant directement et plus "this"
+    // pour éviter que le BaseRepository ne double le "where"
     return prisma.participant.findMany({
       where: {
         OR: [
