@@ -1,7 +1,3 @@
-/**
- * Template email d'envoi de ticket avec QR code
- * Utilise qrImageUrl (Cloudinary) en priorité, sinon qrBase64 inline
- */
 export const ticketEmailTemplate = ({
   participantName,
   eventTitle,
@@ -20,9 +16,7 @@ export const ticketEmailTemplate = ({
     minute: "2-digit",
   });
 
-  const qrSrc = qrImageUrl
-    ? qrImageUrl
-    : `data:image/png;base64,${qrBase64}`;
+  const qrSrc = qrImageUrl ? qrImageUrl : `data:image/png;base64,${qrBase64}`;
 
   return `
 <!DOCTYPE html>
@@ -32,57 +26,76 @@ export const ticketEmailTemplate = ({
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Votre ticket — ${eventTitle}</title>
 </head>
-<body style="margin:0;padding:0;background-color:#f4f4f4;font-family:Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0"
-    style="background-color:#f4f4f4;padding:20px 0;">
+<body style="margin:0;padding:0;background-color:#f5f4ff;font-family:Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f4ff;padding:28px 0;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0"
-          style="background-color:#ffffff;border-radius:8px;overflow:hidden;
-          max-width:600px;width:100%;">
+        <table width="560" cellpadding="0" cellspacing="0"
+          style="background-color:#ffffff;border-radius:16px;overflow:hidden;max-width:560px;width:100%;border:1px solid #ede9fe;">
 
           <!-- Header -->
           <tr>
-            <td style="background-color:#1E3A5F;padding:32px 40px;text-align:center;">
-              <h1 style="color:#ffffff;margin:0;font-size:24px;font-weight:700;">
-                EventFlow
-              </h1>
-              <p style="color:#93c5fd;margin:8px 0 0;font-size:14px;">
-                Votre billet d'entrée
-              </p>
+            <td style="background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);padding:36px 40px 32px;text-align:center;">
+              <table cellpadding="0" cellspacing="0" align="center" style="margin-bottom:8px;">
+                <tr>
+                  <td style="background:rgba(255,255,255,0.2);border-radius:8px;width:32px;height:32px;text-align:center;vertical-align:middle;">
+                    <span style="color:white;font-size:16px;">✦</span>
+                  </td>
+                  <td style="padding-left:10px;">
+                    <span style="color:white;font-size:18px;font-weight:600;letter-spacing:-0.3px;">EventFlow</span>
+                  </td>
+                </tr>
+              </table>
+              <p style="color:rgba(255,255,255,0.7);font-size:13px;margin:0;">Votre billet d'entrée</p>
             </td>
           </tr>
 
           <!-- Salutation -->
           <tr>
             <td style="padding:32px 40px 0;">
-              <p style="color:#374151;font-size:16px;margin:0;">
-                Bonjour <strong>${participantName}</strong>,
+              <p style="color:#111827;font-size:15px;margin:0 0 4px;">
+                Bonjour <strong style="font-weight:600;">${participantName}</strong>,
               </p>
-              <p style="color:#6b7280;font-size:15px;margin:12px 0 0;line-height:1.6;">
-                Votre inscription a été confirmée.
-                Présentez ce QR code à l'entrée de l'événement.
+              <p style="color:#6b7280;font-size:14px;margin:0;line-height:1.6;">
+                Votre inscription est confirmée. Présentez ce QR code à l'entrée.
               </p>
             </td>
           </tr>
 
           <!-- Infos événement -->
           <tr>
-            <td style="padding:24px 40px;">
+            <td style="padding:20px 40px;">
               <table width="100%" cellpadding="0" cellspacing="0"
-                style="background-color:#f0f7ff;border-radius:8px;
-                border-left:4px solid #1E3A5F;">
+                style="background-color:#faf9ff;border-radius:12px;border-left:4px solid #6366f1;overflow:hidden;">
                 <tr>
                   <td style="padding:20px 24px;">
-                    <h2 style="color:#1E3A5F;margin:0 0 12px;font-size:18px;">
-                      ${eventTitle}
-                    </h2>
-                    <p style="color:#374151;margin:0 0 6px;font-size:14px;">
-                      📍 <strong>Lieu :</strong> ${eventLocation}
-                    </p>
-                    <p style="color:#374151;margin:0;font-size:14px;">
-                      📅 <strong>Date :</strong> ${formattedDate}
-                    </p>
+                    <h2 style="color:#1e1b4b;font-size:16px;font-weight:600;margin:0 0 14px;">${eventTitle}</h2>
+                    <table cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="padding:0 0 8px;">
+                          <table cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="background:#ede9fe;border-radius:6px;width:28px;height:28px;text-align:center;vertical-align:middle;">
+                                <span style="font-size:13px;">📍</span>
+                              </td>
+                              <td style="padding-left:10px;color:#6b7280;font-size:13px;">${eventLocation}</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td>
+                          <table cellpadding="0" cellspacing="0">
+                            <tr>
+                              <td style="background:#ede9fe;border-radius:6px;width:28px;height:28px;text-align:center;vertical-align:middle;">
+                                <span style="font-size:13px;">📅</span>
+                              </td>
+                              <td style="padding-left:10px;color:#6b7280;font-size:13px;">${formattedDate}</td>
+                            </tr>
+                          </table>
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
               </table>
@@ -91,34 +104,54 @@ export const ticketEmailTemplate = ({
 
           <!-- QR Code -->
           <tr>
-            <td style="padding:0 40px 32px;text-align:center;">
-              <p style="color:#374151;font-size:14px;margin:0 0 16px;font-weight:600;">
-                Votre QR code d'entrée
+            <td style="padding:4px 40px 28px;text-align:center;">
+              <p style="color:#9ca3af;font-size:11px;margin:0 0 14px;text-transform:uppercase;letter-spacing:0.8px;font-weight:600;">
+                Code d'entrée
               </p>
-              <img
-                src="${qrSrc}"
-                alt="QR Code ticket"
-                width="220"
-                height="220"
-                style="border:8px solid #f0f7ff;border-radius:8px;display:block;margin:0 auto;"
-              />
-              <p style="color:#9ca3af;font-size:11px;margin:12px 0 0;">
-                Référence : ${ticketId.slice(0, 8).toUpperCase()}
+              <table cellpadding="0" cellspacing="0" align="center">
+                <tr>
+                  <td style="background:#ffffff;border-radius:14px;border:1px solid #e5e7eb;padding:14px;">
+                    <img src="${qrSrc}" alt="QR Code" width="160" height="160"
+                      style="display:block;border-radius:4px;" />
+                  </td>
+                </tr>
+              </table>
+              <p style="color:#9ca3af;font-size:11px;margin:12px 0 0;letter-spacing:1px;font-family:monospace;">
+                ${ticketId.slice(0, 8).toUpperCase()}
               </p>
+            </td>
+          </tr>
+
+          <!-- Separateur -->
+          <tr>
+            <td style="padding:0 20px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td width="16" style="background:#f5f4ff;border-radius:50%;height:20px;"></td>
+                  <td style="border-top:2px dashed #e5e7eb;"></td>
+                  <td width="16" style="background:#f5f4ff;border-radius:50%;height:20px;"></td>
+                </tr>
+              </table>
             </td>
           </tr>
 
           <!-- Avertissement -->
           <tr>
-            <td style="padding:0 40px 24px;">
+            <td style="padding:20px 40px;">
               <table width="100%" cellpadding="0" cellspacing="0"
-                style="background-color:#fff7ed;border-radius:8px;">
+                style="background-color:#fef9ec;border-radius:10px;">
                 <tr>
-                  <td style="padding:16px 20px;">
-                    <p style="color:#92400e;font-size:13px;margin:0;line-height:1.5;">
-                      ⚠️ Ce QR code est personnel et ne peut être utilisé
-                      qu'une seule fois. Ne le partagez pas.
-                    </p>
+                  <td style="padding:14px 16px;">
+                    <table cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="vertical-align:top;padding-right:10px;">
+                          <div style="background:#fde68a;border-radius:50%;width:20px;height:20px;text-align:center;line-height:20px;font-size:11px;">!</div>
+                        </td>
+                        <td style="color:#92400e;font-size:12.5px;line-height:1.55;">
+                          Ce QR code est personnel et à usage unique. Ne le partagez pas.
+                        </td>
+                      </tr>
+                    </table>
                   </td>
                 </tr>
               </table>
@@ -127,11 +160,9 @@ export const ticketEmailTemplate = ({
 
           <!-- Footer -->
           <tr>
-            <td style="background-color:#f9fafb;padding:20px 40px;
-              text-align:center;border-top:1px solid #e5e7eb;">
-              <p style="color:#9ca3af;font-size:12px;margin:0;">
-                Cet email a été envoyé automatiquement par EventFlow.
-                Ne pas répondre à cet email.
+            <td style="padding:16px 40px 24px;text-align:center;border-top:1px solid #f3f4f6;">
+              <p style="color:#9ca3af;font-size:11.5px;margin:0;line-height:1.6;">
+                Envoyé automatiquement par EventFlow · Ne pas répondre
               </p>
             </td>
           </tr>
