@@ -119,4 +119,103 @@ export class AuthRepository extends BaseRepository {
       },
     });
   }
+
+  // ─── Participant ──────────────────────────────────────────────
+
+  findParticipantByEmail(email) {
+    return prisma.participant.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        password: true,
+        status: true,
+        avatarUrl: true,
+      },
+    });
+  }
+
+  findParticipantById(id) {
+    return prisma.participant.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        status: true,
+        avatarUrl: true,
+        createdAt: true,
+        updatedAt: true,
+        tickets: {
+          select: {
+            id: true,
+            status: true,
+            qrUrl: true,
+            event: {
+              select: {
+                id: true,
+                title: true,
+                startDate: true,
+                location: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  createParticipant(data) {
+    return prisma.participant.create({ data });
+  }
+
+  updateParticipant(id, data) {
+    return prisma.participant.update({ where: { id }, data });
+  }
+
+  findParticipantByActivationToken(token) {
+    return prisma.participant.findUnique({
+      where: { activationToken: token },
+    });
+  }
+
+  // ─── Participant Refresh tokens ───────────────────────────────
+
+  createParticipantRefreshToken(data) {
+    return prisma.participantRefreshToken.create({ data });
+  }
+
+  findParticipantRefreshToken(token) {
+    return prisma.participantRefreshToken.findUnique({
+      where: { token },
+      include: {
+        participant: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            status: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+  }
+
+  revokeParticipantRefreshToken(token) {
+    return prisma.participantRefreshToken.update({
+      where: { token },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  revokeAllParticipantTokens(participantId) {
+    return prisma.participantRefreshToken.updateMany({
+      where: { participantId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
 }

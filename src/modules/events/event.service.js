@@ -8,7 +8,6 @@ import {
 import MediaUploader from "../../shared/utils/uploader.js";
 import { hashPassword } from "../../shared/utils/hasher.js";
 
-
 const eventRepo = new EventRepository();
 
 // ─── Helpers ──────────────────────────────────────────────────
@@ -179,7 +178,6 @@ export class EventService {
           endDate: endDate ? new Date(endDate) : null,
         }),
         ...(data.capacity && { capacity: data.capacity }),
-        ...(data.status && { status: data.status }),
         // Écraser l'image seulement si une nouvelle a été uploadée
         ...(newImageUrl && { imageUrl: newImageUrl }),
         ...(newImagePublicId && { imagePublicId: newImagePublicId }),
@@ -235,10 +233,7 @@ export class EventService {
 
     const { nom, prenom, email, password } = moderatorData;
 
-    // 1. Vérifier si l'email n'est pas déjà utilisé
-    const existingUser = await eventRepo.prisma.user.findUnique({
-      where: { email },
-    });
+    const existingUser = await eventRepo.findUserByEmail(email);
 
     if (existingUser) {
       if (existingUser.role === "MODERATOR") {

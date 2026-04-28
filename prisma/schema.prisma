@@ -11,20 +11,14 @@ datasource db {
 // ENUMS
 // ─────────────────────────────────────────
 
-enum EmailStatus {
-  PENDING
-  SENT
-  FAILED
-}
-
-enum EmailType {
-  TICKET
-  TICKET_RESEND
-}
-
 enum UserRole {
   ORGANIZER
   MODERATOR
+}
+
+enum ParticipantStatus {
+  PENDING
+  ACTIVE
 }
 
 enum EventStatus {
@@ -47,18 +41,35 @@ enum ScanResult {
   CONFLICT
 }
 
+enum ScanMode {
+  ONLINE
+  OFFLINE
+}
+
+enum EmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum EmailType {
+  TICKET
+  TICKET_RESEND
+  ACCOUNT_ACTIVATION
+}
+
 // ─────────────────────────────────────────
-// USER (STAFF UNIQUEMENT)
+// USER (STAFF UNIQUEMENT — ORGANIZER + MODERATOR)
 // ─────────────────────────────────────────
 
 model User {
-  id           String   @id @default(uuid())
-  nom          String
-  prenom       String
-  email        String   @unique
-  password     String
-  role         UserRole
-  avatarUrl    String?
+  id             String   @id @default(uuid())
+  nom            String
+  prenom         String
+  email          String   @unique
+  password       String
+  role           UserRole
+  avatarUrl      String?
   avatarPublicId String?
 
   createdAt DateTime @default(now())
@@ -73,16 +84,42 @@ model User {
 }
 
 // ─────────────────────────────────────────
-// REFRESH TOKEN
+// PARTICIPANT (COMPTE PUBLIC AVEC AUTH COMPLÈTE)
+// ─────────────────────────────────────────
+
+model Participant {
+  id              String            @id @default(uuid())
+  fullName        String
+  email           String?           @unique
+  phone           String?
+  password        String?
+  avatarUrl       String?
+  status          ParticipantStatus @default(PENDING)
+  activationToken String?           @unique
+  activationExpiresAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets       Ticket[]
+  refreshTokens ParticipantRefreshToken[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([activationToken])
+  @@map("participants")
+}
+
+// ─────────────────────────────────────────
+// REFRESH TOKEN — USER (STAFF)
 // ─────────────────────────────────────────
 
 model RefreshToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  deviceId  String?  
+  id        String    @id @default(uuid())
+  token     String    @unique
+  deviceId  String?
   userAgent String?
   ipAddress String?
-
   expiresAt DateTime
   revokedAt DateTime?
 
@@ -98,22 +135,46 @@ model RefreshToken {
 }
 
 // ─────────────────────────────────────────
+// REFRESH TOKEN — PARTICIPANT
+// ─────────────────────────────────────────
+
+model ParticipantRefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  deviceId  String?
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  participantId String
+  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([participantId])
+  @@index([token])
+  @@index([expiresAt])
+  @@map("participant_refresh_tokens")
+}
+
+// ─────────────────────────────────────────
 // EVENT
 // ─────────────────────────────────────────
 
 model Event {
-  id        String      @id @default(uuid())
-  title     String
-  location  String
-  startDate DateTime
-  endDate   DateTime?
-  capacity  Int
-  status    EventStatus @default(DRAFT)
-  imageUrl  String?
-  imagePublicId  String? 
+  id            String      @id @default(uuid())
+  title         String
+  location      String
+  startDate     DateTime
+  endDate       DateTime?
+  capacity      Int
+  status        EventStatus @default(DRAFT)
+  imageUrl      String?
+  imagePublicId String?
 
   organizerId String
-  organizer   User        @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
+  organizer   User   @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -148,36 +209,17 @@ model EventModerator {
 }
 
 // ─────────────────────────────────────────
-// PARTICIPANT (SANS AUTHENTIFICATION)
-// ─────────────────────────────────────────
-
-model Participant {
-  id       String  @id @default(uuid())
-  fullName String
-  email    String?
-  phone    String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tickets Ticket[]
-
-  @@index([email])
-  @@index([phone])
-  @@map("participants")
-}
-
-// ─────────────────────────────────────────
 // TICKET
 // ─────────────────────────────────────────
 
 model Ticket {
-  id        String       @id @default(uuid())
-  qrPayload String       @unique
+  id            String       @id @default(uuid())
+  qrPayload     String       @unique
   qrUrl         String?
   qrPublicId    String?
-  status    TicketStatus @default(ACTIVE)
-  usedAt    DateTime?
+  status        TicketStatus @default(ACTIVE)
+  usedAt        DateTime?
+  addedByOrganizer Boolean   @default(false)
 
   eventId       String
   participantId String
@@ -188,7 +230,7 @@ model Ticket {
   event       Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
   participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
   scanLogs    ScanLog[]
-  emailLogs   EmailLog[] 
+  emailLogs   EmailLog[]
 
   @@unique([eventId, participantId])
   @@index([eventId])
@@ -197,12 +239,13 @@ model Ticket {
 }
 
 // ─────────────────────────────────────────
-// SCAN LOG (OFFLINE-FIRST)
+// SCAN LOG — HYBRIDE ONLINE + OFFLINE
 // ─────────────────────────────────────────
 
 model ScanLog {
   id       String     @id @default(uuid())
   result   ScanResult
+  mode     ScanMode   @default(ONLINE)
   deviceId String
 
   scannedAt DateTime
@@ -223,19 +266,24 @@ model ScanLog {
   @@index([moderatorId])
   @@index([syncedAt])
   @@index([scannedAt])
+  @@index([mode])
   @@map("scan_logs")
 }
 
-model EmailLog {
-  id          String      @id @default(uuid())
-  to          String
-  type        EmailType
-  status      EmailStatus @default(PENDING)
-  error       String?
-  sentAt      DateTime?
+// ─────────────────────────────────────────
+// EMAIL LOG
+// ─────────────────────────────────────────
 
-  ticketId    String
-  ticket      Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+model EmailLog {
+  id      String      @id @default(uuid())
+  to      String
+  type    EmailType
+  status  EmailStatus @default(PENDING)
+  error   String?
+  sentAt  DateTime?
+
+  ticketId String
+  ticket   Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
 

@@ -3,6 +3,7 @@ import { ParticipantController } from "./participant.controller.js";
 import { validate } from "../../shared/middlewares/validate.middleware.js";
 import {
   authenticate,
+  authenticateParticipant,
   requireRole,
 } from "../../shared/middlewares/auth.middleware.js";
 import { uploadSingle } from "../../shared/middlewares/upload.middleware.js";
@@ -13,6 +14,7 @@ import {
   getParticipantsSchema,
   participantIdSchema,
   updateParticipantSchema,
+  updateMyProfileSchema,
 } from "./participant.validator.js";
 import { uploadCsv } from "../../shared/middlewares/upload-csv.middleware.js";
 
@@ -279,4 +281,174 @@ router.delete(
   participantController.deleteParticipant,
 );
 
+// ─── ROUTEUR ESPACE PARTICIPANT (Public Web) ──────────────────
+// Ces routes ne sont pas liées à un événement spécifique dans l'URL,
+// elles concernent le compte du participant connecté.
+
+export const participantSpaceRouter = Router();
+
+participantSpaceRouter.use(authenticateParticipant);
+
+/**
+ * @swagger
+ * /api/participants/me/profile:
+ *   get:
+ *     summary: Récupérer mon profil participant
+ *     description: Permet à un participant connecté (via l'application web) de récupérer ses informations personnelles et son statut d'activation.
+ *     tags: [Participants - Espace Perso]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Profil du participant récupéré avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                       format: uuid
+ *                     fullName:
+ *                       type: string
+ *                       example: "Fatou Sow"
+ *                     email:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "fatou@gmail.com"
+ *                     phone:
+ *                       type: string
+ *                       nullable: true
+ *                       example: "+221771234567"
+ *                     status:
+ *                       type: string
+ *                       enum: [PENDING, ACTIVE]
+ *                       example: "ACTIVE"
+ *                     hasAccount:
+ *                       type: boolean
+ *                       description: "True si le participant a défini son mot de passe (ACTIF)"
+ *                       example: true
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *       401:
+ *         description: Non authentifié ou compte non activé (PENDING)
+ */
+participantSpaceRouter.get("/me/profile", participantController.getMyProfile);
+
+/**
+ * @swagger
+ * /api/participants/me/tickets:
+ *   get:
+ *     summary: Lister mes billets
+ *     description: Récupère la liste de tous les billets détenus par le participant connecté, avec les détails de l'événement associé et l'URL du QR Code.
+ *     tags: [Participants - Espace Perso]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Liste des billets récupérée avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                         format: uuid
+ *                       status:
+ *                         type: string
+ *                         enum: [ACTIVE, USED, CANCELLED]
+ *                         example: "ACTIVE"
+ *                       qrUrl:
+ *                         type: string
+ *                         format: uri
+ *                         description: "URL de l'image du QR Code à afficher sur le web"
+ *                       usedAt:
+ *                         type: string
+ *                         format: date-time
+ *                         nullable: true
+ *                       event:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           title:
+ *                             type: string
+ *                             example: "Concert Afro Future"
+ *                           location:
+ *                             type: string
+ *                             example: "Dakar Arena"
+ *                           startDate:
+ *                             type: string
+ *                             format: date-time
+ *                           status:
+ *                             type: string
+ *                             enum: [DRAFT, PUBLISHED, ONGOING, CLOSED]
+ *       401:
+ *         description: Non authentifié ou compte non activé
+ */
+participantSpaceRouter.get("/me/tickets", participantController.getMyTickets);
+
+/**
+ * @swagger
+ * /api/participants/me/profile:
+ *   patch:
+ *     summary: Mettre à jour mon profil
+ *     description: Permet au participant de modifier son nom complet ou son numéro de téléphone. (L'email ne peut pas être modifié ici pour des raisons de sécurité).
+ *     tags: [Participants - Espace Perso]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fullName:
+ *                 type: string
+ *                 example: "Fatou Diallo Sow"
+ *               phone:
+ *                 type: string
+ *                 nullable: true
+ *                 example: "+221778889990"
+ *     responses:
+ *       200:
+ *         description: Profil mis à jour avec succès
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                   example: "Profil mis à jour avec succès"
+ *                 data:
+ *                   $ref: '#/components/schemas/Participant'
+ *       401:
+ *         description: Non authentifié
+ *       409:
+ *         description: Le numéro de téléphone est déjà utilisé par un autre participant
+ */
+participantSpaceRouter.patch(
+  "/me/profile",
+  validate(updateMyProfileSchema),
+  participantController.updateMyProfile,
+);
 export default router;

@@ -56,6 +56,47 @@ const createTokenPair = async (
   return { accessToken, refreshToken };
 };
 
+// ─── Helpers participant ──────────────────────────────────────
+
+const buildParticipantPayload = (participant) => ({
+  id: participant.id,
+  email: participant.email,
+  role: "PARTICIPANT", // rôle fixe
+});
+
+const buildParticipantResponse = (participant) => ({
+  id: participant.id,
+  fullName: participant.fullName,
+  email: participant.email,
+  phone: participant.phone ?? null,
+  status: participant.status,
+  avatarUrl: participant.avatarUrl ?? null,
+  createdAt: participant.createdAt,
+  updatedAt: participant.updatedAt,
+});
+
+const createParticipantTokenPair = async (
+  participant,
+  deviceId = null,
+  userAgent = null,
+  ipAddress = null,
+) => {
+  const payload = buildParticipantPayload(participant);
+  const accessToken = tokenGenerator.sign(payload);
+  const refreshToken = tokenGenerator.signRefresh(payload);
+
+  await authRepo.createParticipantRefreshToken({
+    token: refreshToken,
+    participantId: participant.id,
+    deviceId,
+    userAgent,
+    ipAddress,
+    expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  });
+
+  return { accessToken, refreshToken };
+};
+
 // ─── Service ──────────────────────────────────────────────────
 
 export class AuthService {
@@ -172,7 +213,8 @@ export class AuthService {
 
     try {
       const updated = await authRepo.updateUser(userId, {
-        ...(data.name && { name: data.name }),
+        ...(data.nom && { nom: data.nom }),
+        ...(data.prenom && { prenom: data.prenom }),
         ...(newAvatarUrl && { avatarUrl: newAvatarUrl }),
         ...(newAvatarPublicId && { avatarPublicId: newAvatarPublicId }),
       });
@@ -241,5 +283,164 @@ export class AuthService {
   // ─── Révoquer tous les tokens ─────────────────────────────────
   async revokeAllTokens(userId) {
     await authRepo.revokeAllUserTokens(userId);
+  }
+
+  async registerParticipant(data) {
+    const { fullName, email, password, phone } = data;
+
+    const existing = await authRepo.findParticipantByEmail(email);
+    if (existing) {
+      throw new ConflictError("Un compte avec cet email existe déjà");
+    }
+
+    const hashedPassword = await hashPassword(password);
+
+    const participant = await authRepo.createParticipant({
+      fullName,
+      email,
+      phone: phone ?? null,
+      password: hashedPassword,
+      status: "ACTIVE", // auto-inscrit → actif immédiatement
+    });
+
+    const { accessToken, refreshToken } =
+      await createParticipantTokenPair(participant);
+
+    return {
+      participant: buildParticipantResponse(participant),
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  async loginParticipant(email, password, meta = {}) {
+    const participant = await authRepo.findParticipantByEmail(email);
+
+    if (!participant) {
+      await comparePassword(password, DUMMY_HASH);
+      throw new UnauthorizedError("Email ou mot de passe incorrect");
+    }
+
+    // Participant ajouté manuellement mais pas encore activé
+    if (participant.status === "PENDING") {
+      throw new UnauthorizedError(
+        "Votre compte n'est pas encore activé. Vérifiez votre email.",
+      );
+    }
+
+    // Participant sans mot de passe (ajouté manuellement, pas encore activé)
+    if (!participant.password) {
+      await comparePassword(password, DUMMY_HASH);
+      throw new UnauthorizedError("Email ou mot de passe incorrect");
+    }
+
+    const isValid = await comparePassword(password, participant.password);
+    if (!isValid) {
+      throw new UnauthorizedError("Email ou mot de passe incorrect");
+    }
+
+    const { accessToken, refreshToken } = await createParticipantTokenPair(
+      participant,
+      meta.deviceId,
+      meta.userAgent,
+      meta.ipAddress,
+    );
+
+    return {
+      participant: buildParticipantResponse(participant),
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  async activateParticipantAccount(token, password) {
+    const participant = await authRepo.findParticipantByActivationToken(token);
+
+    if (!participant) {
+      throw new NotFoundError("Token d'activation invalide");
+    }
+
+    if (participant.activationExpiresAt < new Date()) {
+      throw new UnauthorizedError(
+        "Token d'activation expiré. Contactez l'organisateur.",
+      );
+    }
+
+    if (participant.status === "ACTIVE") {
+      throw new ConflictError("Ce compte est déjà activé");
+    }
+
+    const hashedPassword = await hashPassword(password);
+
+    const updated = await authRepo.updateParticipant(participant.id, {
+      password: hashedPassword,
+      status: "ACTIVE",
+      activationToken: null,
+      activationExpiresAt: null,
+    });
+
+    const { accessToken, refreshToken } =
+      await createParticipantTokenPair(updated);
+
+    return {
+      participant: buildParticipantResponse(updated),
+      accessToken,
+      refreshToken,
+    };
+  }
+
+  async refreshParticipantToken(token) {
+    const stored = await authRepo.findParticipantRefreshToken(token);
+
+    if (!stored) throw new UnauthorizedError("Refresh token invalide");
+
+    if (stored.revokedAt !== null) {
+      await authRepo.revokeAllParticipantTokens(stored.participantId);
+      throw new UnauthorizedError(
+        "Session compromise — tous vos appareils ont été déconnectés",
+      );
+    }
+
+    if (stored.expiresAt < new Date()) {
+      throw new UnauthorizedError("Session expirée, veuillez vous reconnecter");
+    }
+
+    const { participant } = stored;
+    const newAccessToken = tokenGenerator.sign(
+      buildParticipantPayload(participant),
+    );
+    const newRefreshToken = tokenGenerator.signRefresh(
+      buildParticipantPayload(participant),
+    );
+
+    await Promise.all([
+      authRepo.revokeParticipantRefreshToken(token),
+      authRepo.createParticipantRefreshToken({
+        token: newRefreshToken,
+        participantId: participant.id,
+        deviceId: stored.deviceId,
+        userAgent: stored.userAgent,
+        ipAddress: stored.ipAddress,
+        expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+      }),
+    ]);
+
+    return {
+      participant: buildParticipantResponse(participant),
+      accessToken: newAccessToken,
+      refreshToken: newRefreshToken,
+    };
+  }
+
+  async logoutParticipant(token) {
+    if (token) {
+      await authRepo.revokeParticipantRefreshToken(token).catch(() => {});
+    }
+  }
+
+  async getCurrentParticipant(participantId) {
+    const participant = await authRepo.findParticipantById(participantId);
+    if (!participant) throw new NotFoundError("Participant");
+    return participant;
   }
 }

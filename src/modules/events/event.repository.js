@@ -75,7 +75,13 @@ export class EventRepository extends BaseRepository {
       data,
       include: {
         organizer: {
-          select: { id: true, nom: true, prenom: true, email: true, avatarUrl: true },
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            avatarUrl: true,
+          },
         },
         _count: {
           select: { tickets: true },
@@ -101,7 +107,13 @@ export class EventRepository extends BaseRepository {
       where: { eventId },
       include: {
         user: {
-          select: { id: true, nom: true, prenom: true, email: true, avatarUrl: true },
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            avatarUrl: true,
+          },
         },
       },
       orderBy: { assignedAt: "desc" },
@@ -113,7 +125,13 @@ export class EventRepository extends BaseRepository {
       data: { eventId, userId },
       include: {
         user: {
-          select: { id: true, nom: true, prenom: true, email: true, avatarUrl: true },
+          select: {
+            id: true,
+            nom: true,
+            prenom: true,
+            email: true,
+            avatarUrl: true,
+          },
         },
       },
     });
@@ -122,6 +140,13 @@ export class EventRepository extends BaseRepository {
   removeModerator(eventId, userId) {
     return prisma.eventModerator.delete({
       where: { eventId_userId: { eventId, userId } },
+    });
+  }
+
+  // ─── Users (utile pour la vérification croisée) ──────────────
+  findUserByEmail(email) {
+    return prisma.user.findUnique({
+      where: { email },
     });
   }
 }

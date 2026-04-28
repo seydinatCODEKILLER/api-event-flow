@@ -1,3 +1,5 @@
+import { env } from "../../config/env.js";
+
 export const ticketEmailTemplate = ({
   participantName,
   eventTitle,
@@ -6,6 +8,8 @@ export const ticketEmailTemplate = ({
   qrImageUrl = null,
   qrBase64 = null,
   ticketId,
+  activationToken = null,
+  participantEmail = null,
 }) => {
   const formattedDate = new Date(eventDate).toLocaleDateString("fr-FR", {
     weekday: "long",
@@ -17,6 +21,13 @@ export const ticketEmailTemplate = ({
   });
 
   const qrSrc = qrImageUrl ? qrImageUrl : `data:image/png;base64,${qrBase64}`;
+
+  const webUrl = env.WEB_URL || "http://localhost:3000";
+
+const activationLink =
+  activationToken && participantEmail
+    ? `${webUrl}auth/participant/register?email=${encodeURIComponent(participantEmail)}&token=${activationToken}`
+    : null;
 
   return `
 <!DOCTYPE html>
@@ -157,6 +168,38 @@ export const ticketEmailTemplate = ({
               </table>
             </td>
           </tr>
+
+          ${
+            activationLink
+              ? `
+          <!-- Bloc création de compte — affiché uniquement si token présent -->
+          <tr>
+            <td style="padding:0 40px 24px;">
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="background-color:#f5f4ff;border-radius:12px;border:1px solid #ede9fe;">
+                <tr>
+                  <td style="padding:20px 24px;text-align:center;">
+                    <p style="color:#6366f1;font-size:13px;font-weight:600;margin:0 0 4px;">
+                      💡 Gérez vos tickets depuis votre espace personnel
+                    </p>
+                    <p style="color:#6b7280;font-size:12.5px;margin:0 0 16px;line-height:1.6;">
+                      Créez votre compte pour retrouver tous vos tickets<br/>et suivre vos inscriptions.
+                    </p>
+                    <a href="${activationLink}"
+                      style="display:inline-block;background:linear-gradient(135deg,#6366f1 0%,#8b5cf6 100%);color:#ffffff;font-size:13px;font-weight:600;padding:11px 28px;border-radius:8px;text-decoration:none;letter-spacing:0.2px;">
+                      Créer mon compte
+                    </a>
+                    <p style="color:#9ca3af;font-size:11px;margin:12px 0 0;">
+                      Lien valable 7 jours
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          `
+              : ""
+          }
 
           <!-- Footer -->
           <tr>

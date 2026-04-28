@@ -36,6 +36,7 @@ const buildTicketResponse = (ticket) => ({
   qrPayload: ticket.qrPayload,
   qrUrl: ticket.qrUrl ?? null,
   usedAt: ticket.usedAt ?? null,
+  addedByOrganizer: ticket.addedByOrganizer ?? false,
   participant: ticket.participant ?? undefined,
   event: ticket.event ?? undefined,
   emailLogs: ticket.emailLogs ?? undefined,
@@ -47,7 +48,7 @@ const buildTicketResponse = (ticket) => ({
 
 export class TicketService {
   // ─── Créer un ticket + générer QR + upload Cloudinary ────────
-  async createTicket(eventId, participantId) {
+  async createTicket(eventId, participantId, data = {}) {
     const existing = await ticketRepo.findByEventAndParticipant(
       eventId,
       participantId,
@@ -64,6 +65,7 @@ export class TicketService {
       participantId,
       qrPayload: "",
       status: "ACTIVE",
+      addedByOrganizer: data.addedByOrganizer || false,
     });
 
     // Générer payload JWT + Buffer PNG
@@ -180,7 +182,7 @@ export class TicketService {
 
   // Dans ticket.service.js — ajouter cette méthode
 
-  async sendTicketEmailPublic(ticketId) {
+  async sendTicketEmailPublic(ticketId, activationToken = null) {
     const ticket = await ticketRepo.findByIdFull(ticketId);
     if (!ticket) throw new NotFoundError("Ticket");
     if (!ticket.participant.email) return;
@@ -205,6 +207,8 @@ export class TicketService {
       qrImageUrl,
       qrBase64,
       ticketId: ticket.id,
+      activationToken, // ← nouveau
+      participantEmail: ticket.participant.email, // ← nouveau
     });
 
     try {
@@ -340,10 +344,25 @@ export class TicketService {
     }
 
     if (ticket.status === "CANCELLED") {
+      await ticketRepo.processScanOnline(
+        ticket.id,
+        ticket.eventId,
+        moderatorId,
+        deviceId,
+        "INVALID",
+      );
       return { result: "INVALID", message: "Ticket annulé" };
     }
 
     if (ticket.status === "USED") {
+      await ticketRepo.processScanOnline(
+        ticket.id,
+        ticket.eventId,
+        moderatorId,
+        deviceId,
+        "ALREADY_USED",
+      );
+
       return {
         result: "ALREADY_USED",
         message: "Ticket déjà utilisé",
@@ -352,24 +371,13 @@ export class TicketService {
       };
     }
 
-    // Marquer comme utilisé + créer ScanLog en une transaction
-    await ticketRepo.prisma.$transaction([
-      ticketRepo.prisma.ticket.update({
-        where: { id: ticket.id },
-        data: { status: "USED", usedAt: new Date() },
-      }),
-      ticketRepo.prisma.scanLog.create({
-        data: {
-          ticketId: ticket.id,
-          eventId: ticket.eventId,
-          moderatorId,
-          deviceId,
-          result: "VALID",
-          scannedAt: new Date(),
-          syncedAt: new Date(),
-        },
-      }),
-    ]);
+    await ticketRepo.processScanOnline(
+      ticket.id,
+      ticket.eventId,
+      moderatorId,
+      deviceId,
+      "VALID",
+    );
 
     logger.logEvent("ticket_validated_online", {
       ticketId: ticket.id,

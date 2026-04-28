@@ -11,12 +11,7 @@ export class TicketRepository extends BaseRepository {
       where: { id },
       include: {
         participant: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            phone: true,
-          },
+          select: { id: true, fullName: true, email: true, phone: true },
         },
         event: {
           select: {
@@ -54,20 +49,18 @@ export class TicketRepository extends BaseRepository {
 
   findManyByEvent(eventId, options = {}) {
     const { page, limit, status } = options;
-
     return prisma.ticket.findMany({
-      where: {
-        eventId,
-        ...(status && { status }),
-      },
-      include: {
+      where: { eventId, ...(status && { status }) },
+      select: {
+        id: true,
+        qrPayload: true,
+        qrUrl: true,
+        status: true,
+        usedAt: true,
+        addedByOrganizer: true,
+        createdAt: true,
         participant: {
-          select: {
-            id: true,
-            fullName: true,
-            email: true,
-            phone: true,
-          },
+          select: { id: true, fullName: true, email: true, phone: true },
         },
         emailLogs: {
           select: { status: true, type: true, sentAt: true },
@@ -134,6 +127,53 @@ export class TicketRepository extends BaseRepository {
     return prisma.emailLog.findFirst({
       where: { ticketId },
       orderBy: { createdAt: "desc" },
+    });
+  }
+
+  // ─── Transactions ────────────────────────────────────────────
+  validateTicketOnline(ticketId, eventId, moderatorId, deviceId) {
+    return prisma.$transaction([
+      prisma.ticket.update({
+        where: { id: ticketId },
+        data: { status: "USED", usedAt: new Date() },
+      }),
+      prisma.scanLog.create({
+        data: {
+          ticketId,
+          eventId,
+          moderatorId,
+          deviceId,
+          result: "VALID",
+          scannedAt: new Date(),
+          syncedAt: new Date(), // Scan online = sync immédiat
+        },
+      }),
+    ]);
+  }
+
+    async processScanOnline(ticketId, eventId, moderatorId, deviceId, result) {
+    return prisma.$transaction(async (tx) => {
+      // On ne met à jour le ticket que si la validation est un succès
+      if (result === "VALID") {
+        await tx.ticket.update({
+          where: { id: ticketId },
+          data: { status: "USED", usedAt: new Date() },
+        });
+      }
+
+      // On crée TOUJOURS le ScanLog pour la traçabilité
+      await tx.scanLog.create({
+        data: {
+          ticketId,
+          eventId,
+          moderatorId,
+          deviceId,
+          result,
+          mode: "ONLINE", // <-- REMARQUE 1 & 2 : Forcé à ONLINE
+          scannedAt: new Date(),
+          syncedAt: new Date(),
+        },
+      });
     });
   }
 }

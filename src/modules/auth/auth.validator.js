@@ -24,7 +24,7 @@ export const loginSchema = z.object({
   body: z.object({
     email: z.string().email("Adresse email invalide").toLowerCase(),
     password: z.string().min(1, "Le mot de passe est requis"),
-    deviceId: z.string().optional(), // identifiant appareil mobile
+    deviceId: z.string().optional(),
   }),
 });
 
@@ -49,4 +49,27 @@ export const updateProfileSchema = z.object({
     .refine((data) => Object.keys(data).length > 0, {
       message: "Au moins un champ doit être fourni",
     }),
+});
+
+export const registerParticipantSchema = z.object({
+  body: z.object({
+    fullName: z.string().min(2, "Le nom complet doit contenir au moins 2 caractères"),
+    email: z.string().email("Adresse email invalide").toLowerCase(),
+    password: passwordSchema,
+    phone: z.string().optional(),
+  }),
+});
+
+export const loginParticipantSchema = z.object({
+  body: z.object({
+    email: z.string().email("Adresse email invalide").toLowerCase(),
+    password: z.string().min(1, "Le mot de passe est requis"),
+  }),
+});
+
+export const activateAccountSchema = z.object({
+  body: z.object({
+    token: z.string().min(1, "Le token d'activation est requis"),
+    password: passwordSchema,
+  }),
 });

@@ -72,6 +72,15 @@ export class SyncRepository extends BaseRepository {
     });
   }
 
+  // Dans sync.repository.js — ajouter cette méthode
+  findSyncStatsByEventAndMode(eventId) {
+    return prisma.scanLog.groupBy({
+      by: ["result", "mode"],
+      where: { eventId },
+      _count: { result: true },
+    });
+  }
+
   // Tous les scans d'un événement pour le dashboard
   findScansByEvent(eventId, options = {}) {
     const { page, limit } = options;
@@ -94,5 +103,26 @@ export class SyncRepository extends BaseRepository {
       skip: page && limit ? (page - 1) * limit : undefined,
       take: limit || undefined,
     });
+  }
+
+  // ─── Transactions ────────────────────────────────────────────
+  async validateTicketOffline(ticketId, scannedAt, logData) {
+    return prisma.$transaction([
+      prisma.scanLog.create({
+        data: {
+          ...logData,
+          mode: "OFFLINE", // FORCÉ ICI
+          scannedAt: new Date(scannedAt),
+          syncedAt: new Date(),
+        },
+      }),
+      prisma.ticket.update({
+        where: { id: ticketId },
+        data: {
+          status: "USED",
+          usedAt: new Date(scannedAt),
+        },
+      }),
+    ]);
   }
 }

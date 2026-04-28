@@ -10,6 +10,7 @@ import {
   parseParticipantsCsv,
   deduplicateParticipants,
 } from "../../shared/utils/csvParser.js";
+import crypto from "crypto";
 import { TicketService } from "../tickets/ticket.service.js";
 
 const participantRepo = new ParticipantRepository();
@@ -23,6 +24,8 @@ const buildParticipantResponse = (p) => ({
   fullName: p.fullName,
   email: p.email ?? null,
   phone: p.phone ?? null,
+  status: p.status,
+  hasAccount: p.status === "ACTIVE",
   ticket: p.tickets?.[0] ?? undefined,
   createdAt: p.createdAt,
   updatedAt: p.updatedAt,
@@ -71,14 +74,22 @@ export class ParticipantService {
     }
 
     if (!participant) {
-      participant = await participantRepo.create({ fullName, email, phone });
+      participant = await participantRepo.create({
+        fullName,
+        email,
+        phone,
+        status: "PENDING",
+        activationToken: crypto.randomUUID(),
+        activationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
     }
 
     // Vérifier qu'il n'a pas déjà un ticket pour cet événement
-    const existingTicket = participant.tickets?.find(
-      (t) => t.eventId === eventId,
+    const hasTicket = await participantRepo.hasTicketForEvent(
+      eventId,
+      participant.id,
     );
-    if (existingTicket) {
+    if (hasTicket) {
       throw new ConflictError(
         "Ce participant a déjà un ticket pour cet événement",
       );
@@ -87,7 +98,17 @@ export class ParticipantService {
     const { ticket, qrBase64 } = await ticketService.createTicket(
       eventId,
       participant.id,
+      { addedByOrganizer: true },
     );
+
+    if (participant.email) {
+      await ticketService
+        .sendTicketEmailPublic(
+          ticket.id,
+          participant.status === "ACTIVE" ? null : participant.activationToken,
+        )
+        .catch(() => {});
+    }
 
     return {
       ...buildParticipantResponse(participant),
@@ -185,7 +206,14 @@ export class ParticipantService {
 
     // Créer les nouveaux participants + leurs tickets
     if (toCreate.length > 0) {
-      await participantRepo.createMany(toCreate);
+      await participantRepo.createMany(
+        toCreate.map((p) => ({
+          ...p,
+          status: "PENDING",
+          activationToken: crypto.randomUUID(),
+          activationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        })),
+      );
       createdCount += toCreate.length;
 
       const emailsToFind = toCreate.map((p) => p.email).filter(Boolean);
@@ -270,6 +298,12 @@ export class ParticipantService {
     const participant = await participantRepo.findById(participantId);
     if (!participant) throw new NotFoundError("Participant");
 
+    if (data.email && participant.status === "ACTIVE") {
+      throw new ForbiddenError(
+        "Impossible de modifier l'email d'un participant ayant un compte actif",
+      );
+    }
+
     // Vérifier unicité email
     if (data.email && data.email !== participant.email) {
       const existing = await participantRepo.findByEmail(data.email);
@@ -300,6 +334,55 @@ export class ParticipantService {
     const participant = await participantRepo.findById(participantId);
     if (!participant) throw new NotFoundError("Participant");
 
+    if (participant.status === "ACTIVE") {
+      throw new ForbiddenError(
+        "Impossible de supprimer un participant ayant un compte actif. Annulez son ticket à la place.",
+      );
+    }
+
     await participantRepo.deleteParticipant(participantId);
+  }
+
+  // Dans ParticipantService — ajouter ces méthodes
+
+  async getMyTickets(participantId, options = {}) {
+    const { page = 1, limit = 10 } = options;
+
+    const [tickets, total] = await Promise.all([
+      participantRepo.findTicketsByParticipant(participantId, { page, limit }),
+      participantRepo.countTicketsByParticipant(participantId),
+    ]);
+
+    return {
+      data: tickets,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  async getMyProfile(participantId) {
+    const participant = await participantRepo.findByIdFull(participantId);
+    if (!participant) throw new NotFoundError("Participant");
+    return buildParticipantResponse(participant);
+  }
+
+  // Espace personnel : modifier mon profil
+  async updateMyProfile(participantId, data) {
+    const participant = await participantRepo.findById(participantId);
+    if (!participant) throw new NotFoundError("Participant");
+
+    if (data.email && data.email !== participant.email) {
+      const existing = await participantRepo.findByEmail(data.email);
+      if (existing) throw new ConflictError("Cet email est déjà utilisé");
+    }
+
+    return participantRepo.updateParticipant(participantId, {
+      ...(data.fullName && { fullName: data.fullName }),
+      ...(data.phone !== undefined && { phone: data.phone || null }),
+    });
   }
 }

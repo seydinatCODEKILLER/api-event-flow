@@ -4,12 +4,13 @@ const dashboardRepo = new DashboardRepository();
 
 export class DashboardService {
   async getOrganizerStats(organizerId) {
-    const [totalEvents, ticketDistribution, recentScans, upcomingEvents] =
+    const [totalEvents, ticketDistribution, recentScans, upcomingEvents, participantStats] =
       await Promise.all([
         dashboardRepo.countEvents(organizerId),
         dashboardRepo.getTicketStatusDistribution(organizerId),
         dashboardRepo.getRecentScans(organizerId, 5),
         dashboardRepo.getUpcomingEvents(organizerId, 3),
+        dashboardRepo.getParticipantStats(organizerId),
       ]);
 
     const ticketStats = { ACTIVE: 0, USED: 0, CANCELLED: 0 };
@@ -36,7 +37,13 @@ export class DashboardService {
         ? `${scan.moderator.prenom} ${scan.moderator.nom}`
         : "Système",
       scannedAt: scan.scannedAt,
+      mode: scan.mode,
     }));
+
+    const participants = { ACTIVE: 0, PENDING: 0 };
+    participantStats.forEach((item) => {
+      participants[item.status] = item._count.status;
+    });
 
     return {
       kpis: {
@@ -44,6 +51,9 @@ export class DashboardService {
         totalTickets,
         validatedEntries,
         attendanceRate,
+        totalParticipants: participants.ACTIVE + participants.PENDING, // ← nouveau
+        activeAccounts: participants.ACTIVE, // ← ont créé leur compte
+        pendingAccounts: participants.PENDING, // ← pas encore activé
       },
       chartData: {
         ticketDistribution: ticketStats,

@@ -7,7 +7,7 @@ export class ParticipantRepository extends BaseRepository {
   }
 
   findByEmail(email) {
-    return prisma.participant.findFirst({
+    return prisma.participant.findUnique({
       where: { email },
     });
   }
@@ -144,6 +144,14 @@ export class ParticipantRepository extends BaseRepository {
           ...(phones.length ? [{ phone: { in: phones } }] : []),
         ],
       },
+      select: { id: true },
+    });
+  }
+
+  // ─── Vérification existence ticket ────────────────────────────
+  hasTicketForEvent(eventId, participantId) {
+    return prisma.ticket.findFirst({
+      where: { eventId, participantId },
       select: { id: true },
     });
   }

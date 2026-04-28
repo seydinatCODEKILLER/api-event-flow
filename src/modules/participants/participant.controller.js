@@ -114,4 +114,46 @@ export class ParticipantController {
       next(error);
     }
   }
+
+  // ─── Espace Participant (Web App) ─────────────────────────────
+
+  async getMyProfile(req, res, next) {
+    try {
+      const result = await participantService.getMyProfile(req.participant.id);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async getMyTickets(req, res, next) {
+    try {
+      const result = await participantService.getMyTickets(req.participant.id);
+      res.status(200).json({
+        success: true,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async updateMyProfile(req, res, next) {
+    try {
+      const result = await participantService.updateMyProfile(
+        req.participant.id,
+        req.validated.body,
+      );
+      res.status(200).json({
+        success: true,
+        message: "Profil mis à jour avec succès",
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

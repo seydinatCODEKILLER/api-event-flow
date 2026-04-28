@@ -21,12 +21,26 @@ export class DashboardRepository {
     });
   }
 
+  async getParticipantStats(organizerId) {
+    return prisma.participant.groupBy({
+      by: ["status"],
+      where: {
+        tickets: {
+          some: {
+            event: { organizerId },
+          },
+        },
+      },
+      _count: { status: true },
+    });
+  }
+
   // Récupérer les derniers scans validés (pour le tableau "Activité récente")
   async getRecentScans(organizerId, limit = 5) {
     return prisma.scanLog.findMany({
       where: {
         event: { organizerId },
-        result: "VALID", // On ne montre que les entrées réussies
+        result: "VALID",
       },
       include: {
         ticket: {
@@ -43,9 +57,7 @@ export class DashboardRepository {
           select: { nom: true, prenom: true },
         },
       },
-      orderBy: {
-        scannedAt: "desc",
-      },
+      orderBy: { scannedAt: "desc" },
       take: limit,
     });
   }

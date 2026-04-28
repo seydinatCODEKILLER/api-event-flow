@@ -8,6 +8,15 @@ import {
 
 const tokenGenerator = new TokenGenerator();
 
+// ─── Helper privé : Extraction du token ──────────────────────
+const extractBearerToken = (req) => {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) {
+    throw new UnauthorizedError("Token manquant ou format invalide");
+  }
+  return header.split(" ")[1];
+};
+
 // ─── authenticate — vérifie le JWT et attache req.user ───────
 export const authenticate = async (req, _res, next) => {
   try {
@@ -101,5 +110,32 @@ export const requireEventAccess = async (req, _res, next) => {
     return next(new ForbiddenError("Rôle non reconnu"));
   } catch (err) {
     next(new ForbiddenError("Erreur de vérification d'accès"));
+  }
+};
+
+export const authenticateParticipant = async (req, _res, next) => {
+  try {
+    const token = extractBearerToken(req);
+    const payload = tokenGenerator.verify(token);
+
+    // Vérifier que c'est bien un token participant
+    if (payload.role !== "PARTICIPANT") {
+      throw new UnauthorizedError("Accès réservé aux participants");
+    }
+
+    const participant = await prisma.participant.findUnique({
+      where: { id: payload.id },
+      select: { id: true, fullName: true, email: true, status: true },
+    });
+
+    if (!participant) throw new UnauthorizedError("Participant introuvable");
+    if (participant.status === "PENDING") {
+      throw new UnauthorizedError("Compte non activé");
+    }
+
+    req.participant = participant;
+    next();
+  } catch (error) {
+    next(error);
   }
 };

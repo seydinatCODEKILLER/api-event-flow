@@ -47,8 +47,12 @@ export class SyncService {
       details: [],
     };
 
+    const sortedScans = [...scans].sort(
+      (a, b) => new Date(a.scannedAt) - new Date(b.scannedAt),
+    );
+
     // Traitement séquentiel pour éviter les race conditions
-    for (const scan of scans) {
+    for (const scan of sortedScans) {
       const { ticketId, scannedAt } = scan;
 
       try {
@@ -123,6 +127,7 @@ export class SyncService {
         moderatorId,
         deviceId,
         result: "INVALID",
+        mode: "OFFLINE", // AJOUTÉ
         scannedAt: new Date(scannedAt),
         syncedAt: new Date(),
       });
@@ -131,15 +136,11 @@ export class SyncService {
 
     // 4. Ticket déjà USED — vérifier si c'est un conflit offline
     if (ticket.status === "USED") {
-      // Chercher le premier scan valide pour déterminer qui a gagné
       const firstValidScan = await syncRepo.findFirstValidScan(ticketId);
 
-      // Si le scan actuel est antérieur au premier scan valide connu
-      // → ce scan aurait dû gagner mais a été battu par la sync
       const isEarlier =
         firstValidScan &&
         new Date(scannedAt) < new Date(firstValidScan.scannedAt);
-
       const scanResult = isEarlier ? "CONFLICT" : "ALREADY_USED";
 
       await syncRepo.createScanLog({
@@ -148,6 +149,7 @@ export class SyncService {
         moderatorId,
         deviceId,
         result: scanResult,
+        mode: "OFFLINE", // AJOUTÉ
         scannedAt: new Date(scannedAt),
         syncedAt: new Date(),
       });
@@ -161,28 +163,14 @@ export class SyncService {
       };
     }
 
-    // 5. Ticket ACTIVE → valider
-    // Transaction : créer ScanLog + marquer USED en même temps
-    await syncRepo.prisma.$transaction([
-      syncRepo.prisma.scanLog.create({
-        data: {
-          ticketId,
-          eventId,
-          moderatorId,
-          deviceId,
-          result: "VALID",
-          scannedAt: new Date(scannedAt),
-          syncedAt: new Date(),
-        },
-      }),
-      syncRepo.prisma.ticket.update({
-        where: { id: ticketId },
-        data: {
-          status: "USED",
-          usedAt: new Date(scannedAt), // horodatage local du scan
-        },
-      }),
-    ]);
+    // 5. Ticket ACTIVE → valider via la transaction du repository
+    await syncRepo.validateTicketOffline(ticketId, scannedAt, {
+      ticketId,
+      eventId,
+      moderatorId,
+      deviceId,
+      result: "VALID",
+    });
 
     return {
       result: "VALID",
@@ -264,7 +252,13 @@ export class SyncService {
         ...tickets,
         remaining: event.capacity - totalTickets,
       },
-      scans,
+      scans: {
+        ...scans,
+        byMode: {
+          online: onlineCount,
+          offline: offlineCount,
+        },
+      },
       attendanceRate,
       conflicts: scans.CONFLICT,
     };
