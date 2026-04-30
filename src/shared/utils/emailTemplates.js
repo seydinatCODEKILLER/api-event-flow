@@ -22,7 +22,8 @@ export const ticketEmailTemplate = ({
 
   const qrSrc = qrImageUrl ? qrImageUrl : `data:image/png;base64,${qrBase64}`;
 
-  const webUrl = env.WEB_URL || "http://localhost:3000";
+  // const webUrl = env.WEB_URL || "http://localhost:3000";
+  const webUrl = env.IS_PROD ? env.WEB_URL : env.WEB_URL_DEV;
 
 const activationLink =
   activationToken && participantEmail

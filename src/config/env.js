@@ -61,7 +61,7 @@ export const env = {
   LOG_LEVEL: process.env.LOG_LEVEL || (isProd ? "info" : "debug"),
 
   WEB_URL: process.env.WEB_URL || "",
-  WEB_URL_DEV: process.env.WEB_URL_DEV || "http://localhost:3000",
+  WEB_URL_DEV: process.env.WEB_URL_DEV || "http://localhost:3001",
 
   BREVO_API_KEY: process.env.BREVO_API_KEY || "",
   MAIL_FROM: process.env.MAIL_FROM || "noreply@eventflow.com",
