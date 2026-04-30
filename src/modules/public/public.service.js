@@ -110,7 +110,7 @@ export class PublicService {
           fullName,
           email: email || null,
           phone: phone || null,
-          status: email ? "ACTIVE" : "PENDING",
+          status: "PENDING",
           activationToken, // toujours généré — sert pour le lien email
           activationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         });
