@@ -26,7 +26,7 @@ export const ticketEmailTemplate = ({
 
 const activationLink =
   activationToken && participantEmail
-    ? `${webUrl}/participant/register?email=${encodeURIComponent(participantEmail)}&token=${activationToken}`
+    ? `${webUrl}/participant/activate?email=${encodeURIComponent(participantEmail)}&token=${activationToken}`
     : null;
 
   return `
