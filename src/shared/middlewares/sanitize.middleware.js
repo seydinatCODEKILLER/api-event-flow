@@ -33,10 +33,10 @@ const sanitizeValue = (value) => {
       if (!isNaN(date.getTime())) return date;
     }
 
-    // Nombres — capacity, page, limit, etc.
-    if (/^[-+]?\d*\.?\d+$/.test(trimmed)) {
-      return Number(trimmed);
-    }
+    // // Nombres — capacity, page, limit, etc.
+    // if (/^[-+]?\d*\.?\d+$/.test(trimmed)) {
+    //   return Number(trimmed);
+    // }
 
     return trimmed;
   }

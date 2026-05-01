@@ -8,15 +8,25 @@ const passwordSchema = z
     "Le mot de passe doit contenir au moins une majuscule, une minuscule et un chiffre",
   );
 
+  const phoneSchema = z
+  .string()
+  .regex(
+    /^\+221(77|70|78|76)\d{7}$/,
+    "Le numéro doit être au format +22177XXXXXXX, +22170XXXXXXX, +22178XXXXXXX ou +22176XXXXXXX",
+  );
+
 export const registerSchema = z.object({
   body: z.object({
-    nom: z.string().min(2, "Le nom doit contenir au moins 2 caractères"),
-    prenom: z.string().min(2, "Le prenom doit contenir au moins 2 caractères"),
+    fullName: z.string().min(2, "Le nom complet doit contenir au moins 2 caractères"),
     email: z.string().email("Adresse email invalide").toLowerCase(),
     password: passwordSchema,
-    role: z.enum(["ORGANIZER", "MODERATOR"], {
-      errorMap: () => ({ message: "Le rôle doit être ORGANIZER ou MODERATOR" }),
-    }),
+    phone: phoneSchema.optional(),
+  }),
+});
+
+export const verifyEmailSchema = z.object({
+  body: z.object({
+    token: z.string().min(1, "Le token de vérification est requis"),
   }),
 });
 
@@ -37,39 +47,13 @@ export const refreshTokenSchema = z.object({
 export const updateProfileSchema = z.object({
   body: z
     .object({
-      nom: z
+      fullName: z
         .string()
-        .min(2, "Le nom doit contenir au moins 2 caractères")
+        .min(2, "Le nom complet doit contenir au moins 2 caractères")
         .optional(),
-      prenom: z
-        .string()
-        .min(2, "Le prenom doit contenir au moins 2 caractères")
-        .optional(),
+      phone: phoneSchema.optional(),
     })
     .refine((data) => Object.keys(data).length > 0, {
       message: "Au moins un champ doit être fourni",
     }),
-});
-
-export const registerParticipantSchema = z.object({
-  body: z.object({
-    fullName: z.string().min(2, "Le nom complet doit contenir au moins 2 caractères"),
-    email: z.string().email("Adresse email invalide").toLowerCase(),
-    password: passwordSchema,
-    phone: z.string().optional(),
-  }),
-});
-
-export const loginParticipantSchema = z.object({
-  body: z.object({
-    email: z.string().email("Adresse email invalide").toLowerCase(),
-    password: z.string().min(1, "Le mot de passe est requis"),
-  }),
-});
-
-export const activateAccountSchema = z.object({
-  body: z.object({
-    token: z.string().min(1, "Le token d'activation est requis"),
-    password: passwordSchema,
-  }),
 });

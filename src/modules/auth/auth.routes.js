@@ -1,23 +1,15 @@
 import { Router } from "express";
 import { AuthController } from "./auth.controller.js";
-import {
-  validate,
-  validateBody,
-} from "../../shared/middlewares/validate.middleware.js";
-import {
-  authenticate,
-  authenticateParticipant,
-} from "../../shared/middlewares/auth.middleware.js";
+import { validate } from "../../shared/middlewares/validate.middleware.js";
+import { authenticate } from "../../shared/middlewares/auth.middleware.js";
 import { uploadSingle } from "../../shared/middlewares/upload.middleware.js";
 import { sanitizeBody } from "../../shared/middlewares/sanitize.middleware.js";
 import {
   registerSchema,
+  verifyEmailSchema,
   loginSchema,
   refreshTokenSchema,
   updateProfileSchema,
-  registerParticipantSchema,
-  loginParticipantSchema,
-  activateAccountSchema,
 } from "./auth.validator.js";
 import {
   authLimiter,
@@ -34,7 +26,8 @@ const authController = new AuthController();
  * @swagger
  * /api/auth/register:
  *   post:
- *     summary: Créer un compte staff (organisateur ou modérateur)
+ *     summary: Créer un compte
+ *     description: Crée un compte en statut PENDING et envoie un email de vérification. Ne retourne pas de tokens.
  *     tags: [Auth]
  *     security: []
  *     requestBody:
@@ -43,29 +36,26 @@ const authController = new AuthController();
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [nom, prenom, email, password, role]
+ *             required: [fullName, email, password]
  *             properties:
- *               nom:
+ *               fullName:
  *                 type: string
- *                 example: "Diallo"
- *               prenom:
- *                 type: string
- *                 example: "Amadou"
+ *                 example: "Amadou Diallo"
  *               email:
  *                 type: string
- *                 example: "amadou@eventflow.com"
+ *                 example: "amadou@gmail.com"
  *               password:
  *                 type: string
  *                 example: "MonMotDePasse1"
- *               role:
+ *               phone:
  *                 type: string
- *                 enum: [ORGANIZER, MODERATOR]
+ *                 example: "+221771234567"
  *               avatar:
  *                 type: string
  *                 format: binary
  *     responses:
  *       201:
- *         description: Compte créé avec succès
+ *         description: Compte créé, en attente de vérification email
  *       409:
  *         description: Email déjà utilisé
  */
@@ -80,9 +70,45 @@ router.post(
 
 /**
  * @swagger
+ * /api/auth/verify-email:
+ *   post:
+ *     summary: Vérifier l'adresse email
+ *     description: Valide le token de vérification, active le compte et retourne les tokens de session (auto-login).
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token:
+ *                 type: string
+ *                 description: Token de vérification reçu par email
+ *     responses:
+ *       200:
+ *         description: Email vérifié, tokens retournés
+ *       401:
+ *         description: Token expiré
+ *       404:
+ *         description: Token invalide
+ *       409:
+ *         description: Compte déjà vérifié
+ */
+router.post(
+  "/verify-email",
+  validate(verifyEmailSchema),
+  authController.verifyEmail,
+);
+
+/**
+ * @swagger
  * /api/auth/login:
  *   post:
- *     summary: Connexion avec email et mot de passe
+ *     summary: Connexion
+ *     description: Connecte un utilisateur dont le compte est vérifié (ACTIVE).
  *     tags: [Auth]
  *     security: []
  *     requestBody:
@@ -95,7 +121,7 @@ router.post(
  *             properties:
  *               email:
  *                 type: string
- *                 example: "amadou@eventflow.com"
+ *                 example: "amadou@gmail.com"
  *               password:
  *                 type: string
  *                 example: "MonMotDePasse1"
@@ -106,7 +132,7 @@ router.post(
  *       200:
  *         description: Connexion réussie
  *       401:
- *         description: Identifiants incorrects
+ *         description: Identifiants incorrects ou email non vérifié
  */
 router.post("/login", authLimiter, validate(loginSchema), authController.login);
 
@@ -144,7 +170,7 @@ router.post(
  * @swagger
  * /api/auth/logout:
  *   post:
- *     summary: Déconnexion — révoque le refresh token
+ *     summary: Déconnexion
  *     tags: [Auth]
  *     security: []
  *     requestBody:
@@ -196,9 +222,9 @@ router.get("/me", authenticate, authController.getCurrentUser);
  *           schema:
  *             type: object
  *             properties:
- *               nom:
+ *               fullName:
  *                 type: string
- *               prenom:
+ *               phone:
  *                 type: string
  *               avatar:
  *                 type: string
@@ -233,273 +259,5 @@ router.patch(
  *         description: Non authentifié
  */
 router.post("/revoke-all-tokens", authenticate, authController.revokeAllTokens);
-
-// ─── Routes participant (publiques) ───────────────────────────
-
-/**
- * @swagger
- * /api/auth/participant/register:
- *   post:
- *     summary: Inscription d'un participant
- *     description: Crée un compte participant directement actif (auto-inscrit).
- *     tags: [Auth - Participant]
- *     security: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [fullName, email, password]
- *             properties:
- *               fullName:
- *                 type: string
- *                 example: "Fatou Sow"
- *               email:
- *                 type: string
- *                 format: email
- *                 example: "fatou@gmail.com"
- *               password:
- *                 type: string
- *                 format: password
- *                 description: Min 8 caractères, 1 majuscule, 1 minuscule, 1 chiffre
- *                 example: "MonMotDePasse1"
- *               phone:
- *                 type: string
- *                 example: "+221771234567"
- *     responses:
- *       201:
- *         description: Compte créé avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     participant:
- *                       $ref: '#/components/schemas/Participant'
- *                     accessToken:
- *                       type: string
- *                     refreshToken:
- *                       type: string
- *       409:
- *         description: Email déjà utilisé
- */
-router.post(
-  "/participant/register",
-  registerLimiter,
-  validate(registerParticipantSchema),
-  authController.registerParticipant,
-);
-
-/**
- * @swagger
- * /api/auth/participant/login:
- *   post:
- *     summary: Connexion participant
- *     description: Connecte un participant. Échoue si le compte est en attente d'activation (PENDING) ou si le mot de passe est invalide.
- *     tags: [Auth - Participant]
- *     security: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [email, password]
- *             properties:
- *               email:
- *                 type: string
- *                 format: email
- *                 example: "fatou@gmail.com"
- *               password:
- *                 type: string
- *                 example: "MonMotDePasse1"
- *     responses:
- *       200:
- *         description: Connexion réussie
- *       401:
- *         description: Identifiants incorrects ou compte non activé
- */
-router.post(
-  "/participant/login",
-  authLimiter,
-  validate(loginParticipantSchema),
-  authController.loginParticipant,
-);
-
-/**
- * @swagger
- * /api/auth/participant/activate:
- *   post:
- *     summary: Activer un compte participant (via import CSV)
- *     description: Permet à un participant "fantôme" (ajouté par l'organisateur) de définir son mot de passe et d'activer son compte grâce au token reçu par email.
- *     tags: [Auth - Participant]
- *     security: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [token, password]
- *             properties:
- *               token:
- *                 type: string
- *                 description: Token d'activation unique reçu par email
- *                 example: "a1b2c3d4e5f6g7h8i9j0..."
- *               password:
- *                 type: string
- *                 description: Min 8 caractères, 1 majuscule, 1 minuscule, 1 chiffre
- *                 example: "MonMotDePasse1"
- *     responses:
- *       200:
- *         description: Compte activé avec succès, retourne les tokens de session
- *       401:
- *         description: Token d'activation expiré
- *       404:
- *         description: Token d'activation invalide
- *       409:
- *         description: Ce compte est déjà activé
- */
-router.post(
-  "/participant/activate",
-  validate(activateAccountSchema),
-  authController.activateAccount,
-);
-
-/**
- * @swagger
- * /api/auth/participant/refresh-token:
- *   post:
- *     summary: Rafraîchir le token participant
- *     description: Génère une nouvelle paire de tokens à partir d'un refresh token valide. Révoque tous les appareils si le token a été réutilisé après révocation (sécurité).
- *     tags: [Auth - Participant]
- *     security: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [refreshToken]
- *             properties:
- *               refreshToken:
- *                 type: string
- *     responses:
- *       200:
- *         description: Token rafraîchi avec succès
- *       401:
- *         description: Token invalide, révoqué ou expiré
- */
-router.post(
-  "/participant/refresh-token",
-  refreshTokenLimiter,
-  validate(refreshTokenSchema),
-  authController.refreshParticipantToken,
-);
-
-/**
- * @swagger
- * /api/auth/participant/logout:
- *   post:
- *     summary: Déconnexion participant
- *     description: Révoque le refresh token fourni.
- *     tags: [Auth - Participant]
- *     security: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [refreshToken]
- *             properties:
- *               refreshToken:
- *                 type: string
- *     responses:
- *       200:
- *         description: Déconnexion réussie
- */
-router.post(
-  "/participant/logout",
-  validate(refreshTokenSchema),
-  authController.logoutParticipant,
-);
-
-// ─── Routes participant (protégées) ───────────────────────────
-
-/**
- * @swagger
- * /api/auth/participant/me:
- *   get:
- *     summary: Profil du participant connecté
- *     description: Retourne les informations du participant authentifié, ainsi que la liste de ses tickets avec les détails des événements associés.
- *     tags: [Auth - Participant]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Profil et billets récupérés avec succès
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                 data:
- *                   type: object
- *                   properties:
- *                     id:
- *                       type: string
- *                       format: uuid
- *                     fullName:
- *                       type: string
- *                     email:
- *                       type: string
- *                     phone:
- *                       type: string
- *                     status:
- *                       type: string
- *                       enum: [PENDING, ACTIVE]
- *                     tickets:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           id:
- *                             type: string
- *                           status:
- *                             type: string
- *                             enum: [ACTIVE, USED, CANCELLED]
- *                           qrUrl:
- *                             type: string
- *                             format: uri
- *                           event:
- *                             type: object
- *                             properties:
- *                               id:
- *                                 type: string
- *                               title:
- *                                 type: string
- *                               startDate:
- *                                 type: string
- *                                 format: date-time
- *                               location:
- *                                 type: string
- *       401:
- *         description: Non authentifié ou compte non activé (PENDING)
- */
-router.get(
-  "/participant/me",
-  authenticateParticipant,
-  authController.getCurrentParticipant,
-);
 
 export default router;

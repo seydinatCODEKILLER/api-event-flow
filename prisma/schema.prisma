@@ -11,12 +11,7 @@ datasource db {
 // ENUMS
 // ─────────────────────────────────────────
 
-enum UserRole {
-  ORGANIZER
-  MODERATOR
-}
-
-enum ParticipantStatus {
+enum AccountStatus {
   PENDING
   ACTIVE
 }
@@ -26,6 +21,16 @@ enum EventStatus {
   PUBLISHED
   ONGOING
   CLOSED
+}
+
+enum EventCategory {
+  CONCERT
+  CONFERENCE
+  SPORT
+  FETE
+  ART
+  GASTRONOMIE
+  AUTRE
 }
 
 enum TicketStatus {
@@ -55,63 +60,71 @@ enum EmailStatus {
 enum EmailType {
   TICKET
   TICKET_RESEND
-  ACCOUNT_ACTIVATION
+  EMAIL_VERIFICATION
+}
+
+enum NotificationType {
+  INSCRIPTION_CONFIRMED  // tu viens de t'inscrire à un event
+  EVENT_REMINDER         // rappel 24h avant l'event
+  MODERATOR_ASSIGNED     // tu as été assigné comme modérateur
+  TICKET_SCANNED         // ton ticket vient d'être scanné
+  EVENT_CANCELLED        // un event auquel tu es inscrit est annulé
+  EVENT_UPDATED          // un event auquel tu es inscrit a été modifié
+}
+
+enum PaymentStatus {
+  PENDING    // paiement initié
+  COMPLETED  // paiement validé (simulé côté front)
+  FAILED     // paiement échoué
+  REFUNDED   // remboursé
+}
+
+enum PaymentMethod {
+  ORANGE_MONEY
+  WAVE
+  FREE_MONEY
+  CARD
 }
 
 // ─────────────────────────────────────────
-// USER (STAFF UNIQUEMENT — ORGANIZER + MODERATOR)
+// USER
 // ─────────────────────────────────────────
 
 model User {
-  id             String   @id @default(uuid())
-  nom            String
-  prenom         String
-  email          String   @unique
+  id             String        @id @default(uuid())
+  fullName       String
+  email          String        @unique
+  phone          String?
   password       String
-  role           UserRole
   avatarUrl      String?
   avatarPublicId String?
+  status         AccountStatus @default(PENDING)
+
+  verificationToken     String?   @unique
+  verificationExpiresAt DateTime?
+
+  // Token push notifications (Expo Push Token)
+  pushToken String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   organizedEvents Event[]          @relation("OrganizerEvents")
   moderatedEvents EventModerator[]
+  tickets         Ticket[]
   scanLogs        ScanLog[]
   refreshTokens   RefreshToken[]
+  notifications   Notification[]
+  payments        Payment[]
 
+  @@index([email])
+  @@index([phone])
+  @@index([verificationToken])
   @@map("users")
 }
 
 // ─────────────────────────────────────────
-// PARTICIPANT (COMPTE PUBLIC AVEC AUTH COMPLÈTE)
-// ─────────────────────────────────────────
-
-model Participant {
-  id              String            @id @default(uuid())
-  fullName        String
-  email           String?           @unique
-  phone           String?
-  password        String?
-  avatarUrl       String?
-  status          ParticipantStatus @default(PENDING)
-  activationToken String?           @unique
-  activationExpiresAt DateTime?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  tickets       Ticket[]
-  refreshTokens ParticipantRefreshToken[]
-
-  @@index([email])
-  @@index([phone])
-  @@index([activationToken])
-  @@map("participants")
-}
-
-// ─────────────────────────────────────────
-// REFRESH TOKEN — USER (STAFF)
+// REFRESH TOKEN
 // ─────────────────────────────────────────
 
 model RefreshToken {
@@ -135,43 +148,29 @@ model RefreshToken {
 }
 
 // ─────────────────────────────────────────
-// REFRESH TOKEN — PARTICIPANT
-// ─────────────────────────────────────────
-
-model ParticipantRefreshToken {
-  id        String    @id @default(uuid())
-  token     String    @unique
-  deviceId  String?
-  userAgent String?
-  ipAddress String?
-  expiresAt DateTime
-  revokedAt DateTime?
-
-  participantId String
-  participant   Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@index([participantId])
-  @@index([token])
-  @@index([expiresAt])
-  @@map("participant_refresh_tokens")
-}
-
-// ─────────────────────────────────────────
 // EVENT
 // ─────────────────────────────────────────
 
 model Event {
-  id            String      @id @default(uuid())
+  id            String        @id @default(uuid())
   title         String
+  description   String?
   location      String
+  city          String?
+  latitude      Float?
+  longitude     Float?
+  category      EventCategory @default(AUTRE)
   startDate     DateTime
   endDate       DateTime?
   capacity      Int
-  status        EventStatus @default(DRAFT)
+  status        EventStatus   @default(DRAFT)
   imageUrl      String?
   imagePublicId String?
+
+  // Paiement — null = gratuit
+  isFree        Boolean  @default(true)
+  price         Float?   // null si gratuit
+  currency      String   @default("XOF") // Franc CFA par défaut
 
   organizerId String
   organizer   User   @relation("OrganizerEvents", fields: [organizerId], references: [id], onDelete: Cascade)
@@ -185,11 +184,15 @@ model Event {
 
   @@index([status])
   @@index([organizerId])
+  @@index([category])
+  @@index([city])
+  @@index([startDate])
+  @@index([isFree])
   @@map("events")
 }
 
 // ─────────────────────────────────────────
-// EVENT MODERATOR (JOIN TABLE)
+// EVENT MODERATOR
 // ─────────────────────────────────────────
 
 model EventModerator {
@@ -213,33 +216,70 @@ model EventModerator {
 // ─────────────────────────────────────────
 
 model Ticket {
-  id            String       @id @default(uuid())
-  qrPayload     String       @unique
-  qrUrl         String?
-  qrPublicId    String?
-  status        TicketStatus @default(ACTIVE)
-  usedAt        DateTime?
-  addedByOrganizer Boolean   @default(false)
+  id               String       @id @default(uuid())
+  qrPayload        String       @unique
+  qrUrl            String?
+  qrPublicId       String?
+  status           TicketStatus @default(ACTIVE)
+  usedAt           DateTime?
+  addedByOrganizer Boolean      @default(false)
 
-  eventId       String
-  participantId String
+  eventId String
+  userId  String
+
+  // Lien vers le paiement si event payant
+  paymentId String? @unique
+  payment   Payment? @relation(fields: [paymentId], references: [id])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  event       Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
-  scanLogs    ScanLog[]
-  emailLogs   EmailLog[]
+  event     Event      @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  scanLogs  ScanLog[]
+  emailLogs EmailLog[]
 
-  @@unique([eventId, participantId])
+  @@unique([eventId, userId])
   @@index([eventId])
+  @@index([userId])
   @@index([status])
   @@map("tickets")
 }
 
 // ─────────────────────────────────────────
-// SCAN LOG — HYBRIDE ONLINE + OFFLINE
+// PAYMENT
+// ─────────────────────────────────────────
+
+model Payment {
+  id            String        @id @default(uuid())
+  amount        Float
+  currency      String        @default("XOF")
+  status        PaymentStatus @default(PENDING)
+  method        PaymentMethod
+  reference     String        @unique // référence de transaction unique
+  failureReason String?
+
+  userId  String
+  eventId String
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  completedAt DateTime?
+  refundedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  ticket Ticket?
+
+  @@index([userId])
+  @@index([eventId])
+  @@index([status])
+  @@index([reference])
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────
+// SCAN LOG
 // ─────────────────────────────────────────
 
 model ScanLog {
@@ -291,3 +331,28 @@ model EmailLog {
   @@index([status])
   @@map("email_logs")
 }
+
+// ─────────────────────────────────────────
+// NOTIFICATION
+// ─────────────────────────────────────────
+
+model Notification {
+  id      String           @id @default(uuid())
+  type    NotificationType
+  title   String
+  body    String
+  isRead  Boolean          @default(false)
+  metadata Json?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+

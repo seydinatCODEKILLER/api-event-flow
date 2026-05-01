@@ -3,16 +3,26 @@ import { AuthService } from "./auth.service.js";
 const authService = new AuthService();
 
 export class AuthController {
-
   async register(req, res, next) {
     try {
-      const result = await authService.register(
-        req.validated.body,
-        req.file
-      );
+      const result = await authService.register(req.validated.body, req.file);
       res.status(201).json({
         success: true,
-        message: "Compte créé avec succès",
+        message: "Compte créé. Vérifiez votre adresse email.",
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async verifyEmail(req, res, next) {
+    try {
+      const { token } = req.validated.body;
+      const result = await authService.verifyEmail(token);
+      res.status(200).json({
+        success: true,
+        message: "Email vérifié avec succès",
         data: result,
       });
     } catch (error) {
@@ -55,7 +65,7 @@ export class AuthController {
       const result = await authService.updateProfile(
         req.user.id,
         req.validated.body,
-        req.file
+        req.file,
       );
       res.status(200).json({
         success: true,
@@ -100,90 +110,6 @@ export class AuthController {
       res.status(200).json({
         success: true,
         message: "Tous les appareils ont été déconnectés",
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-
-  async registerParticipant(req, res, next) {
-    try {
-      const result = await authService.registerParticipant(req.validated.body);
-      res.status(201).json({
-        success: true,
-        message: "Compte participant créé avec succès",
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async loginParticipant(req, res, next) {
-    try {
-      const { email, password } = req.validated.body;
-      const result = await authService.loginParticipant(email, password, {
-        userAgent: req.headers["user-agent"] || null,
-        ipAddress: req.ip || null,
-      });
-      res.status(200).json({
-        success: true,
-        message: "Connexion réussie",
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async activateAccount(req, res, next) {
-    try {
-      const { token, password } = req.validated.body;
-      const result = await authService.activateParticipantAccount(token, password);
-      res.status(200).json({
-        success: true,
-        message: "Compte activé avec succès",
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async getCurrentParticipant(req, res, next) {
-    try {
-      const result = await authService.getCurrentParticipant(req.participant.id);
-      res.status(200).json({
-        success: true,
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async refreshParticipantToken(req, res, next) {
-    try {
-      const { refreshToken } = req.validated.body;
-      const result = await authService.refreshParticipantToken(refreshToken);
-      res.status(200).json({
-        success: true,
-        message: "Token rafraîchi avec succès",
-        data: result,
-      });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async logoutParticipant(req, res, next) {
-    try {
-      const { refreshToken } = req.validated.body;
-      await authService.logoutParticipant(refreshToken);
-      res.status(200).json({
-        success: true,
-        message: "Déconnexion réussie",
       });
     } catch (error) {
       next(error);

@@ -31,6 +31,7 @@ export class ParticipantRepository extends BaseRepository {
                 location: true,
                 startDate: true,
                 status: true,
+                imageUrl: true, // ← ajouter
               },
             },
           },
@@ -117,8 +118,6 @@ export class ParticipantRepository extends BaseRepository {
   }
 
   findExistingByEmailsOrPhones(emails, phones) {
-    // CORRECTION : On utilise prisma.participant directement et plus "this"
-    // pour éviter que le BaseRepository ne double le "where"
     return prisma.participant.findMany({
       where: {
         OR: [
@@ -131,6 +130,8 @@ export class ParticipantRepository extends BaseRepository {
         fullName: true,
         email: true,
         phone: true,
+        status: true, // ← ajouter
+        activationToken: true, // ← ajouter
       },
     });
   }
@@ -166,6 +167,35 @@ export class ParticipantRepository extends BaseRepository {
         ],
       },
       select: { id: true, email: true, phone: true },
+    });
+  }
+
+  findTicketsByParticipant(participantId, options = {}) {
+    const { page = 1, limit = 10 } = options;
+
+    return prisma.ticket.findMany({
+      where: { participantId },
+      include: {
+        event: {
+          select: {
+            id: true,
+            title: true,
+            location: true,
+            startDate: true,
+            status: true,
+            imageUrl: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+  }
+
+  countTicketsByParticipant(participantId) {
+    return prisma.ticket.count({
+      where: { participantId },
     });
   }
 }

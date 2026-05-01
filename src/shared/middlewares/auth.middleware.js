@@ -8,16 +8,11 @@ import {
 
 const tokenGenerator = new TokenGenerator();
 
-// ─── Helper privé : Extraction du token ──────────────────────
-const extractBearerToken = (req) => {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) {
-    throw new UnauthorizedError("Token manquant ou format invalide");
-  }
-  return header.split(" ")[1];
-};
-
-// ─── authenticate — vérifie le JWT et attache req.user ───────
+/**
+ * Middleware d'authentification unifié.
+ * Vérifie le JWT et attache req.user.
+ * Fonctionne pour tous les utilisateurs (plus de séparation staff/participant).
+ */
 export const authenticate = async (req, _res, next) => {
   try {
     const header = req.headers.authorization;
@@ -32,10 +27,9 @@ export const authenticate = async (req, _res, next) => {
       where: { id: decoded.id },
       select: {
         id: true,
-        nom: true,
-        prenom: true,
+        fullName: true,
         email: true,
-        role: true,
+        status: true,
         avatarUrl: true,
       },
     });
@@ -43,6 +37,13 @@ export const authenticate = async (req, _res, next) => {
     if (!currentUser) {
       throw new UnauthorizedError(
         "Token appartient à un utilisateur qui n'existe plus",
+      );
+    }
+
+    // Sécurité : bloquer les comptes non vérifiés
+    if (currentUser.status === "PENDING") {
+      throw new UnauthorizedError(
+        "Veuillez vérifier votre adresse email avant de continuer",
       );
     }
 
@@ -57,85 +58,37 @@ export const authenticate = async (req, _res, next) => {
   }
 };
 
-// ─── requireRole — restriction par rôle ──────────────────────
-export const requireRole =
-  (...roles) =>
-  (req, _res, next) => {
-    if (!req.user || !roles.includes(req.user.role)) {
-      return next(
-        new ForbiddenError(
-          "Vous n'avez pas la permission d'effectuer cette action",
-        ),
-      );
-    }
-    next();
-  };
-
-// ─── requireEventAccess — vérifie l'accès à un événement ─────
+/**
+ * Vérifie que l'utilisateur connecté est organisateur OU modérateur d'un événement.
+ * Ne se base plus sur un champ "role" fixe — le rôle est contextuel.
+ */
 export const requireEventAccess = async (req, _res, next) => {
   try {
     const eventId = req.params.eventId || req.params.id;
     if (!eventId) return next();
 
-    const { id: userId, role } = req.user;
+    const { id: userId } = req.user;
 
-    if (role === "ORGANIZER") {
-      const event = await prisma.event.findFirst({
-        where: { id: eventId, organizerId: userId },
-        select: { id: true },
-      });
-
-      if (!event) {
-        return next(new ForbiddenError("Accès non autorisé à cet événement"));
-      }
-
-      return next();
-    }
-
-    if (role === "MODERATOR") {
-      const assignment = await prisma.eventModerator.findUnique({
-        where: { eventId_userId: { eventId, userId } },
-        select: { id: true },
-      });
-
-      if (!assignment) {
-        return next(
-          new ForbiddenError("Vous n'êtes pas assigné à cet événement"),
-        );
-      }
-
-      return next();
-    }
-
-    return next(new ForbiddenError("Rôle non reconnu"));
-  } catch (err) {
-    next(new ForbiddenError("Erreur de vérification d'accès"));
-  }
-};
-
-export const authenticateParticipant = async (req, _res, next) => {
-  try {
-    const token = extractBearerToken(req);
-    const payload = tokenGenerator.verify(token);
-
-    // Vérifier que c'est bien un token participant
-    if (payload.role !== "PARTICIPANT") {
-      throw new UnauthorizedError("Accès réservé aux participants");
-    }
-
-    const participant = await prisma.participant.findUnique({
-      where: { id: payload.id },
-      select: { id: true, fullName: true, email: true, status: true },
+    // Vérifier si l'utilisateur est l'organisateur
+    const asOrganizer = await prisma.event.findFirst({
+      where: { id: eventId, organizerId: userId },
+      select: { id: true },
     });
 
-    if (!participant) throw new UnauthorizedError("Participant introuvable");
-    if (participant.status === "PENDING") {
-      throw new UnauthorizedError("Compte non activé");
-    }
+    if (asOrganizer) return next();
 
-    req.participant = participant;
-    next();
-  } catch (error) {
-    next(error);
+    // Vérifier si l'utilisateur est modérateur assigné
+    const asModerator = await prisma.eventModerator.findUnique({
+      where: { eventId_userId: { eventId, userId } },
+      select: { id: true },
+    });
+
+    if (asModerator) return next();
+
+    return next(
+      new ForbiddenError("Vous n'avez pas accès à cet événement"),
+    );
+  } catch (err) {
+    next(new ForbiddenError("Erreur de vérification d'accès"));
   }
 };
