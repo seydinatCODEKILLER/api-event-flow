@@ -52,24 +52,33 @@ export const swaggerOptions = {
             data: { type: "object" },
           },
         },
+        PaginationMeta: {
+          type: "object",
+          properties: {
+            total: { type: "integer", example: 150 },
+            page: { type: "integer", example: 1 },
+            limit: { type: "integer", example: 20 },
+            totalPages: { type: "integer", example: 8 },
+          },
+        },
 
-        // ─── User (staff) ──────────────────────────────────────
+        // ─── User ──────────────────────────────────────────────
         User: {
           type: "object",
           properties: {
-            id: { type: "string", format: "uuid", example: "a1b2c3d4-..." },
-            nom: { type: "string", example: "Diallo" },
-            prenom: { type: "string", example: "Amadou" },
-            email: { type: "string", example: "amadou@eventflow.com" },
-            role: {
+            id: { type: "string", format: "uuid" },
+            fullName: { type: "string", example: "Amadou Diallo" },
+            email: {
               type: "string",
-              enum: ["ORGANIZER", "MODERATOR"],
-              example: "ORGANIZER",
+              format: "email",
+              example: "amadou@eventflow.com",
             },
-            avatarUrl: {
+            phone: { type: "string", nullable: true, example: "+221771234567" },
+            avatarUrl: { type: "string", nullable: true },
+            status: {
               type: "string",
-              nullable: true,
-              example: "https://res.cloudinary.com/...",
+              enum: ["PENDING", "ACTIVE"],
+              example: "ACTIVE",
             },
             createdAt: { type: "string", format: "date-time" },
             updatedAt: { type: "string", format: "date-time" },
@@ -79,14 +88,8 @@ export const swaggerOptions = {
           type: "object",
           properties: {
             user: { $ref: "#/components/schemas/User" },
-            accessToken: {
-              type: "string",
-              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-            },
-            refreshToken: {
-              type: "string",
-              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-            },
+            accessToken: { type: "string", example: "eyJhbGciOiJIUzI1..." },
+            refreshToken: { type: "string", example: "eyJhbGciOiJIUzI1..." },
           },
         },
 
@@ -96,7 +99,24 @@ export const swaggerOptions = {
           properties: {
             id: { type: "string", format: "uuid" },
             title: { type: "string", example: "Concert Youssou N'Dour" },
+            description: { type: "string", nullable: true },
             location: { type: "string", example: "Dakar Arena" },
+            city: { type: "string", nullable: true, example: "Dakar" },
+            latitude: { type: "number", format: "float", nullable: true },
+            longitude: { type: "number", format: "float", nullable: true },
+            category: {
+              type: "string",
+              enum: [
+                "CONCERT",
+                "CONFERENCE",
+                "SPORT",
+                "FETE",
+                "ART",
+                "GASTRONOMIE",
+                "AUTRE",
+              ],
+              example: "CONCERT",
+            },
             startDate: { type: "string", format: "date-time" },
             endDate: { type: "string", format: "date-time", nullable: true },
             capacity: { type: "integer", example: 5000 },
@@ -105,6 +125,10 @@ export const swaggerOptions = {
               enum: ["DRAFT", "PUBLISHED", "ONGOING", "CLOSED"],
               example: "PUBLISHED",
             },
+            imageUrl: { type: "string", nullable: true },
+            isFree: { type: "boolean", example: true },
+            price: { type: "number", nullable: true, example: 5000 },
+            currency: { type: "string", example: "XOF" },
             organizerId: { type: "string", format: "uuid" },
             ticketsCount: { type: "integer", example: 3200 },
             scansCount: { type: "integer", example: 1800 },
@@ -118,30 +142,15 @@ export const swaggerOptions = {
             {
               type: "object",
               properties: {
-                organizer: {
-                  type: "object",
-                  properties: {
-                    id: { type: "string", format: "uuid" },
-                    nom: { type: "string", example: "Diallo" },
-                    prenom: { type: "string", example: "Amadou" },
-                    email: { type: "string", example: "amadou@eventflow.com" },
-                    avatarUrl: { type: "string", nullable: true },
-                  },
-                },
+                organizer: { $ref: "#/components/schemas/User" },
                 moderators: {
                   type: "array",
                   items: {
                     type: "object",
                     properties: {
                       id: { type: "string", format: "uuid" },
-                      nom: { type: "string", example: "Ndiaye" },
-                      prenom: { type: "string", example: "Moussa" },
-                      email: {
-                        type: "string",
-                        example: "moussa@eventflow.com",
-                      },
-                      avatarUrl: { type: "string", nullable: true },
                       assignedAt: { type: "string", format: "date-time" },
+                      user: { $ref: "#/components/schemas/User" },
                     },
                   },
                 },
@@ -150,40 +159,91 @@ export const swaggerOptions = {
           ],
         },
 
-        // ─── Participant ───────────────────────────────────────
-        Participant: {
+        // ─── Ticket ────────────────────────────────────────────
+        TicketListItem: {
           type: "object",
           properties: {
             id: { type: "string", format: "uuid" },
-            fullName: { type: "string", example: "Fatou Sow" },
-            email: {
-              type: "string",
-              nullable: true,
-              example: "fatou@gmail.com",
-            },
-            phone: { type: "string", nullable: true, example: "+221771234567" },
+            status: { type: "string", enum: ["ACTIVE", "USED", "CANCELLED"] },
+            qrPayload: { type: "string" },
+            qrUrl: { type: "string", nullable: true },
+            usedAt: { type: "string", format: "date-time", nullable: true },
+            addedByOrganizer: { type: "boolean", example: false },
             createdAt: { type: "string", format: "date-time" },
+            user: { $ref: "#/components/schemas/User" },
+            emailLogs: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  status: {
+                    type: "string",
+                    enum: ["PENDING", "SENT", "FAILED"],
+                  },
+                  type: { type: "string" },
+                  sentAt: {
+                    type: "string",
+                    format: "date-time",
+                    nullable: true,
+                  },
+                },
+              },
+            },
           },
         },
-
-        // ─── Ticket ────────────────────────────────────────────
-        Ticket: {
+        TicketDetails: {
+          allOf: [
+            { $ref: "#/components/schemas/TicketListItem" },
+            {
+              type: "object",
+              properties: {
+                userId: { type: "string", format: "uuid" },
+                event: { $ref: "#/components/schemas/Event" },
+                emailLogs: {
+                  type: "array",
+                  description: "Historique complet des emails",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string", format: "uuid" },
+                      to: { type: "string" },
+                      type: {
+                        type: "string",
+                        enum: ["TICKET", "TICKET_RESEND", "EMAIL_VERIFICATION"],
+                      },
+                      status: {
+                        type: "string",
+                        enum: ["PENDING", "SENT", "FAILED"],
+                      },
+                      error: { type: "string", nullable: true },
+                      sentAt: {
+                        type: "string",
+                        format: "date-time",
+                        nullable: true,
+                      },
+                      createdAt: { type: "string", format: "date-time" },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+        TicketSyncItem: {
           type: "object",
+          description: "Format léger pour la synchronisation mobile offline",
           properties: {
             id: { type: "string", format: "uuid" },
-            qrPayload: {
-              type: "string",
-              example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+            qrPayload: { type: "string" },
+            qrUrl: { type: "string", nullable: true },
+            status: { type: "string", enum: ["ACTIVE"] },
+            userId: { type: "string", format: "uuid" },
+            user: {
+              type: "object",
+              properties: {
+                fullName: { type: "string", example: "Fatou Sow" },
+              },
             },
-            status: {
-              type: "string",
-              enum: ["ACTIVE", "USED", "CANCELLED"],
-              example: "ACTIVE",
-            },
-            eventId: { type: "string", format: "uuid" },
-            participantId: { type: "string", format: "uuid" },
-            usedAt: { type: "string", format: "date-time", nullable: true },
-            createdAt: { type: "string", format: "date-time" },
           },
         },
 
@@ -192,26 +252,70 @@ export const swaggerOptions = {
           type: "object",
           properties: {
             id: { type: "string", format: "uuid" },
-            ticketId: { type: "string", format: "uuid" },
-            eventId: { type: "string", format: "uuid" },
-            moderatorId: { type: "string", format: "uuid", nullable: true },
-            deviceId: { type: "string", example: "expo-device-abc123" },
             result: {
               type: "string",
               enum: ["VALID", "ALREADY_USED", "INVALID", "CONFLICT"],
-              example: "VALID",
             },
-            scannedAt: {
+            mode: { type: "string", enum: ["ONLINE", "OFFLINE"] },
+            deviceId: { type: "string", example: "expo-device-abc123" },
+            scannedAt: { type: "string", format: "date-time" },
+            syncedAt: { type: "string", format: "date-time", nullable: true },
+            ticketId: { type: "string", format: "uuid" },
+            eventId: { type: "string", format: "uuid" },
+            moderatorId: { type: "string", format: "uuid", nullable: true },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
+
+        // ─── Payment ───────────────────────────────────────────
+        Payment: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            amount: { type: "number", example: 5000 },
+            currency: { type: "string", example: "XOF" },
+            status: {
               type: "string",
-              format: "date-time",
-              description: "Horodatage LOCAL du scan (avant sync réseau)",
+              enum: ["PENDING", "COMPLETED", "FAILED", "REFUNDED"],
             },
-            syncedAt: {
+            method: {
+              type: "string",
+              enum: ["ORANGE_MONEY", "WAVE", "FREE_MONEY", "CARD"],
+            },
+            reference: { type: "string", example: "TXN-20231024-001" },
+            failureReason: { type: "string", nullable: true },
+            completedAt: {
               type: "string",
               format: "date-time",
               nullable: true,
-              description: "null = pas encore synchronisé",
             },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
+
+        // ─── Notification ──────────────────────────────────────
+        Notification: {
+          type: "object",
+          properties: {
+            id: { type: "string", format: "uuid" },
+            type: {
+              type: "string",
+              enum: [
+                "INSCRIPTION_CONFIRMED",
+                "EVENT_REMINDER",
+                "MODERATOR_ASSIGNED",
+                "TICKET_SCANNED",
+                "EVENT_CANCELLED",
+                "EVENT_UPDATED",
+              ],
+            },
+            title: { type: "string", example: "Rappel d'événement" },
+            body: {
+              type: "string",
+              example: "L'événement X commence dans 24h.",
+            },
+            isRead: { type: "boolean", example: false },
+            metadata: { type: "object", nullable: true },
             createdAt: { type: "string", format: "date-time" },
           },
         },
@@ -256,10 +360,17 @@ export const swaggerOptions = {
       parameters: {
         eventIdParam: {
           in: "path",
-          name: "id",
+          name: "eventId",
           required: true,
           schema: { type: "string", format: "uuid" },
           description: "ID de l'événement",
+        },
+        ticketIdParam: {
+          in: "path",
+          name: "ticketId",
+          required: true,
+          schema: { type: "string", format: "uuid" },
+          description: "ID du ticket",
         },
         pageQuery: {
           in: "query",
@@ -274,6 +385,13 @@ export const swaggerOptions = {
           required: false,
           schema: { type: "integer", minimum: 1, maximum: 100, default: 20 },
           description: "Nombre d'éléments par page",
+        },
+        ticketStatusQuery: {
+          in: "query",
+          name: "status",
+          required: false,
+          schema: { type: "string", enum: ["ACTIVE", "USED", "CANCELLED"] },
+          description: "Filtrer par statut du ticket",
         },
       },
     },

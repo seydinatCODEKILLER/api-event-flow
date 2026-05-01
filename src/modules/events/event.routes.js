@@ -3,10 +3,10 @@ import { EventController } from "./event.controller.js";
 import { validate } from "../../shared/middlewares/validate.middleware.js";
 import {
   authenticate,
-  requireRole,
+  requireEventAccess,
 } from "../../shared/middlewares/auth.middleware.js";
 import { uploadSingle } from "../../shared/middlewares/upload.middleware.js";
-import { sanitizeBody } from "../../shared/middlewares/sanitize.middleware.js"; // ← AJOUT
+import { sanitizeBody } from "../../shared/middlewares/sanitize.middleware.js";
 import { crudLimiter } from "../../config/rateLimiter.js";
 import {
   createEventSchema,
@@ -17,6 +17,9 @@ import {
   removeModeratorSchema,
   publishEventSchema,
   closeEventSchema,
+  eventStatsSchema,
+  eventTicketsSchema,
+  eventParticipantsSchema,
 } from "./event.validator.js";
 
 const router = Router();
@@ -32,6 +35,7 @@ router.use(crudLimiter);
  * /api/events:
  *   post:
  *     summary: Créer un événement
+ *     description: Tout utilisateur connecté peut créer un événement.
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
@@ -41,62 +45,64 @@ router.use(crudLimiter);
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [title, location, startDate, capacity]
+ *             required:
+ *               - title
+ *               - location
+ *               - startDate
+ *               - capacity
  *             properties:
  *               title:
  *                 type: string
- *                 example: "Concert Youssou N'Dour"
+ *                 example: Concert Youssou N'Dour
+ *               description:
+ *                 type: string
  *               location:
  *                 type: string
- *                 example: "Dakar Arena"
+ *               city:
+ *                 type: string
+ *               latitude:
+ *                 type: number
+ *               longitude:
+ *                 type: number
+ *               category:
+ *                 type: string
+ *                 enum: [CONCERT, CONFERENCE, SPORT, FETE, ART, GASTRONOMIE, AUTRE]
  *               startDate:
  *                 type: string
  *                 format: date-time
- *                 example: "2025-12-01T20:00:00Z"
  *               endDate:
  *                 type: string
  *                 format: date-time
  *                 nullable: true
- *                 example: "2025-12-01T23:00:00Z"
  *               capacity:
  *                 type: integer
- *                 example: 5000
+ *               isFree:
+ *                 type: boolean
+ *                 default: true
+ *               price:
+ *                 type: number
+ *                 nullable: true
+ *               currency:
+ *                 type: string
+ *                 default: "XOF"
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Image de couverture de l'événement
  *     responses:
  *       201:
- *         description: Événement créé avec succès
+ *         description: Événement créé
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Événement créé avec succès"
+ *                 success: { type: "boolean", example: true }
+ *                 message: { type: "string", example: "Événement créé avec succès" }
  *                 data:
  *                   $ref: '#/components/schemas/Event'
- *       400:
- *         description: Données invalides
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       403:
- *         description: Réservé aux organisateurs
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
 router.post(
   "/",
-  requireRole("ORGANIZER"),
   uploadSingle("image"),
   sanitizeBody,
   validate(createEventSchema),
@@ -107,85 +113,45 @@ router.post(
  * @swagger
  * /api/events:
  *   get:
- *     summary: Lister ses événements (organisateur)
+ *     summary: Lister mes événements créés
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *           minimum: 1
- *         description: Numéro de page
+ *       - $ref: '#/components/parameters/pageQuery'
  *       - in: query
  *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *           minimum: 1
- *           maximum: 50
- *         description: Nombre d'éléments par page
+ *         required: false
+ *         schema: { type: "integer", default: 10 }
  *       - in: query
  *         name: status
+ *         required: false
  *         schema:
  *           type: string
  *           enum: [DRAFT, PUBLISHED, ONGOING, CLOSED]
- *         description: Filtrer par statut
  *     responses:
  *       200:
- *         description: Liste des événements avec pagination
+ *         description: Liste paginée
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
+ *                 success: { type: "boolean", example: true }
  *                 data:
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/Event'
  *                 pagination:
- *                   type: object
- *                   properties:
- *                     total:
- *                       type: integer
- *                       example: 42
- *                     page:
- *                       type: integer
- *                       example: 1
- *                     limit:
- *                       type: integer
- *                       example: 10
- *                     totalPages:
- *                       type: integer
- *                       example: 5
- *       403:
- *         description: Réservé aux organisateurs
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *                   $ref: '#/components/schemas/PaginationMeta'
  */
-router.get(
-  "/",
-  requireRole("ORGANIZER"),
-  validate(getEventsSchema),
-  eventController.getEvents,
-);
+router.get("/", validate(getEventsSchema), eventController.getEvents);
 
 /**
  * @swagger
  * /api/events/{id}:
  *   get:
  *     summary: Détail d'un événement
- *     description: |
- *       Accessible par l'organisateur propriétaire et les modérateurs assignés.
- *       Retourne le détail complet avec la liste des modérateurs et les compteurs
- *       de tickets et de scans.
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
@@ -193,47 +159,31 @@ router.get(
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Identifiant de l'événement
+ *         schema: { type: "string", format: "uuid" }
  *     responses:
  *       200:
- *         description: Détail de l'événement
+ *         description: Détail complet (organisateur et modérateurs inclus)
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
+ *                 success: { type: "boolean", example: true }
  *                 data:
  *                   $ref: '#/components/schemas/EventFull'
- *       403:
- *         description: Accès non autorisé à cet événement
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: Événement introuvable
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
-router.get("/:id", validate(eventIdSchema), eventController.getEventById);
+router.get(
+  "/:id",
+  requireEventAccess,
+  validate(eventIdSchema),
+  eventController.getEventById,
+);
 
 /**
  * @swagger
  * /api/events/{id}:
  *   patch:
  *     summary: Modifier un événement
- *     description: |
- *       Réservé à l'organisateur propriétaire de l'événement.
- *       Tous les champs sont optionnels — seuls les champs fournis sont mis à jour.
- *       Un événement clôturé (CLOSED) ne peut plus être modifié.
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
@@ -241,85 +191,45 @@ router.get("/:id", validate(eventIdSchema), eventController.getEventById);
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Identifiant de l'événement
+ *         schema: { type: "string", format: "uuid" }
  *     requestBody:
  *       required: true
  *       content:
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             minProperties: 1
  *             properties:
- *               title:
- *                 type: string
- *                 minLength: 2
- *                 example: "Concert Youssou N'Dour — Edition Spéciale"
- *               location:
- *                 type: string
- *                 minLength: 2
- *                 example: "Stade Léopold Sédar Senghor"
- *               startDate:
- *                 type: string
- *                 format: date-time
- *                 example: "2025-12-01T20:00:00Z"
- *               endDate:
- *                 type: string
- *                 format: date-time
- *                 nullable: true
- *                 example: "2025-12-01T23:30:00Z"
- *               capacity:
- *                 type: integer
- *                 minimum: 1
- *                 example: 8000
- *               status:
- *                 type: string
- *                 enum: [DRAFT, PUBLISHED, ONGOING, CLOSED]
- *                 example: "PUBLISHED"
+ *               title: { type: "string" }
+ *               description: { type: "string" }
+ *               location: { type: "string" }
+ *               city: { type: "string" }
+ *               latitude: { type: "number" }
+ *               longitude: { type: "number" }
+ *               category: { type: "string", enum: [CONCERT, CONFERENCE, SPORT, FETE, ART, GASTRONOMIE, AUTRE] }
+ *               startDate: { type: "string", format: "date-time" }
+ *               endDate: { type: "string", format: "date-time", nullable: true }
+ *               capacity: { type: "integer" }
+ *               isFree: { type: "boolean" }
+ *               price: { type: "number", nullable: true }
+ *               currency: { type: "string" }
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Nouvelle image de couverture (remplace l'ancienne)
  *     responses:
  *       200:
- *         description: Événement mis à jour avec succès
+ *         description: Événement mis à jour
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Événement mis à jour avec succès"
+ *                 success: { type: "boolean", example: true }
+ *                 message: { type: "string", example: "Événement mis à jour avec succès" }
  *                 data:
  *                   $ref: '#/components/schemas/Event'
- *       400:
- *         description: Données invalides ou événement clôturé
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       403:
- *         description: Non propriétaire de l'événement
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: Événement introuvable
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
  */
 router.patch(
   "/:id",
-  requireRole("ORGANIZER"),
   uploadSingle("image"),
   sanitizeBody,
   validate(updateEventSchema),
@@ -331,10 +241,6 @@ router.patch(
  * /api/events/{id}:
  *   delete:
  *     summary: Supprimer un événement
- *     description: |
- *       Réservé à l'organisateur propriétaire.
- *       Un événement en cours (ONGOING) ne peut pas être supprimé.
- *       La suppression est en cascade — tickets et scan logs associés sont supprimés.
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
@@ -342,79 +248,48 @@ router.patch(
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Identifiant de l'événement
+ *         schema: { type: "string", format: "uuid" }
  *     responses:
  *       200:
- *         description: Événement supprimé avec succès
+ *         description: Événement supprimé
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ */
+router.delete("/:id", validate(eventIdSchema), eventController.deleteEvent);
+
+// ─── Statuts & Workflows ──────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/events/{id}/publish:
+ *   patch:
+ *     summary: Publier un événement
+ *     description: Change le statut de l'événement à PUBLISHED.
+ *     tags: [Events]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: "string", format: "uuid" }
+ *     responses:
+ *       200:
+ *         description: Événement publié
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Événement supprimé avec succès"
- *       400:
- *         description: Événement en cours — suppression impossible
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       403:
- *         description: Non propriétaire de l'événement
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: Événement introuvable
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *                 success: { type: "boolean", example: true }
+ *                 message: { type: "string", example: "Événement publié avec succès" }
+ *                 data:
+ *                   $ref: '#/components/schemas/Event'
  */
-router.delete(
-  "/:id",
-  requireRole("ORGANIZER"),
-  validate(eventIdSchema),
-  eventController.deleteEvent,
-);
-
-/**
- * @swagger
- * /api/events/{id}/publish:
- *   post:
- *     summary: Publier un événement
- *     description: |
- *       Transition l'événement vers le statut PUBLISHED.
- *       Impossible si l'événement est déjà publié ou clôturé.
- *     tags: [Events]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: Événement publié
- *       400:
- *         description: Événement déjà publié ou clôturé
- *       403:
- *         description: Non propriétaire
- */
-router.post(
+router.patch(
   "/:id/publish",
-  requireRole("ORGANIZER"),
   validate(publishEventSchema),
   eventController.publishEvent,
 );
@@ -422,11 +297,9 @@ router.post(
 /**
  * @swagger
  * /api/events/{id}/close:
- *   post:
+ *   patch:
  *     summary: Clôturer un événement
- *     description: |
- *       Transition l'événement vers le statut CLOSED.
- *       Impossible si l'événement est un brouillon ou déjà clôturé.
+ *     description: Change le statut de l'événement à CLOSED.
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
@@ -434,103 +307,34 @@ router.post(
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *           format: uuid
+ *         schema: { type: "string", format: "uuid" }
  *     responses:
  *       200:
  *         description: Événement clôturé
- *       400:
- *         description: Brouillon ou déjà clôturé
- *       403:
- *         description: Non propriétaire
- */
-router.post(
-  "/:id/close",
-  requireRole("ORGANIZER"),
-  validate(closeEventSchema),
-  eventController.closeEvent,
-);
-
-// ─── Modérateurs ──────────────────────────────────────────────
-
-/**
- * @swagger
- * /api/events/{id}/moderators:
- *   get:
- *     summary: Lister les modérateurs d'un événement
- *     description: Accessible par l'organisateur propriétaire et les modérateurs assignés.
- *     tags: [Events]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Identifiant de l'événement
- *     responses:
- *       200:
- *         description: Liste des modérateurs assignés
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
+ *                 success: { type: "boolean", example: true }
+ *                 message: { type: "string", example: "Événement clôturé avec succès" }
  *                 data:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       id:
- *                         type: string
- *                         format: uuid
- *                       name:
- *                         type: string
- *                         example: "Moussa Ndiaye"
- *                       email:
- *                         type: string
- *                         example: "moussa@eventflow.com"
- *                       avatarUrl:
- *                         type: string
- *                         nullable: true
- *                       assignedAt:
- *                         type: string
- *                         format: date-time
- *       403:
- *         description: Accès non autorisé
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
- *       404:
- *         description: Événement introuvable
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *                   $ref: '#/components/schemas/Event'
  */
-router.get(
-  "/:id/moderators",
-  validate(eventIdSchema),
-  eventController.getModerators,
+router.patch(
+  "/:id/close",
+  validate(closeEventSchema),
+  eventController.closeEvent,
 );
+
+// ─── Modérateurs ───────────────────────────────────────────────
 
 /**
  * @swagger
  * /api/events/{id}/moderators:
  *   post:
- *     summary: Créer et assigner un modérateur
- *     description: |
- *       Réservé à l'organisateur propriétaire.
- *       Crée le compte modérateur avec un mot de passe temporaire et l'assigne
- *       immédiatement à l'événement.
- *       Si un compte modérateur existe déjà avec cet email, il est simplement assigné.
+ *     summary: Assigner un modérateur existant
+ *     description: Réservé à l'organisateur. L'utilisateur doit avoir un compte vérifié (ACTIVE).
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
@@ -538,46 +342,29 @@ router.get(
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *           format: uuid
+ *         schema: { type: "string", format: "uuid" }
  *     requestBody:
  *       required: true
  *       content:
- *         multipart/form-data:           # ← CHANGÉ ICI
+ *         application/json:
  *           schema:
  *             type: object
- *             required: [nom, prenom, email, password]
+ *             required: [email]
  *             properties:
- *               nom:
- *                 type: string
- *                 example: "Ndiaye"
- *               prenom:
- *                 type: string
- *                 example: "Moussa"
  *               email:
  *                 type: string
  *                 format: email
- *                 example: "moussa@eventflow.com"
- *               password:
- *                 type: string
- *                 format: password
- *                 example: "Password123"
- *               avatar:                     # ← AJOUTÉ ICI
- *                 type: string
- *                 format: binary
- *                 description: Photo de profil du modérateur
+ *                 example: moussa@gmail.com
  *     responses:
  *       201:
- *         description: Modérateur créé et assigné
+ *         description: Modérateur assigné
+ *       404:
+ *         description: Aucun compte trouvé avec cet email
  *       409:
- *         description: Email déjà utilisé
+ *         description: Déjà assigné
  */
 router.post(
   "/:id/moderators",
-  requireRole("ORGANIZER"),
-  uploadSingle("avatar"),
-  sanitizeBody,
   validate(addModeratorSchema),
   eventController.addModerator,
 );
@@ -586,58 +373,154 @@ router.post(
  * @swagger
  * /api/events/{eventId}/moderators/{moderatorId}:
  *   delete:
- *     summary: Retirer un modérateur d'un événement
- *     description: Réservé à l'organisateur propriétaire de l'événement.
+ *     summary: Retirer un modérateur
  *     tags: [Events]
  *     security:
  *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Identifiant de l'événement
+ *       - $ref: '#/components/parameters/eventIdParam'
  *       - in: path
  *         name: moderatorId
  *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Identifiant du modérateur à retirer
+ *         schema: { type: "string", format: "uuid" }
  *     responses:
  *       200:
- *         description: Modérateur retiré avec succès
+ *         description: Modérateur retiré
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Success'
+ */
+router.delete(
+  "/:eventId/moderators/:moderatorId",
+  validate(removeModeratorSchema),
+  eventController.removeModerator,
+);
+
+// ─── Tickets & Participants (Users) ───────────────────────────
+
+/**
+ * @swagger
+ * /api/events/{id}/tickets:
+ *   get:
+ *     summary: Lister les tickets d'un événement
+ *     description: Récupère la liste paginée de tous les tickets générés pour un événement.
+ *     tags: [Events]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: "string", format: "uuid" }
+ *       - $ref: '#/components/parameters/pageQuery'
+ *       - $ref: '#/components/parameters/limitQuery'
+ *       - $ref: '#/components/parameters/ticketStatusQuery'
+ *     responses:
+ *       200:
+ *         description: Liste des tickets récupérée avec succès
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Modérateur retiré avec succès"
+ *                 success: { type: "boolean", example: true }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/TicketListItem'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMeta'
  *       403:
- *         description: Non propriétaire de l'événement
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Error'
+ *         description: Accès refusé à cet événement
  *       404:
- *         description: Événement introuvable ou modérateur non assigné
+ *         description: Événement introuvable
+ */
+router.get(
+  "/:id/tickets",
+  requireEventAccess,
+  validate(eventTicketsSchema),
+  eventController.getEventTickets,
+);
+
+/**
+ * @swagger
+ * /api/events/{id}/participants:
+ *   get:
+ *     summary: Lister les participants d'un événement
+ *     description: |
+ *       Récupère la liste paginée des utilisateurs (Users) possédant un ticket pour cet événement.
+ *       (La table Participant n'existe pas, un participant est un User lié à un Ticket).
+ *     tags: [Events]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: "string", format: "uuid" }
+ *       - $ref: '#/components/parameters/pageQuery'
+ *       - $ref: '#/components/parameters/limitQuery'
+ *       - in: query
+ *         name: search
+ *         required: false
+ *         description: "Rechercher par nom ou email"
+ *         schema: { type: "string" }
+ *     responses:
+ *       200:
+ *         description: Liste des participants (Users) récupérée avec succès
  *         content:
  *           application/json:
  *             schema:
- *               $ref: '#/components/schemas/Error'
+ *               type: object
+ *               properties:
+ *                 success: { type: "boolean", example: true }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/User'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMeta'
+ *       403:
+ *         description: Accès refusé à cet événement
+ *       404:
+ *         description: Événement introuvable
  */
-router.delete(
-  "/:eventId/moderators/:moderatorId",
-  requireRole("ORGANIZER"),
-  validate(removeModeratorSchema),
-  eventController.removeModerator,
+router.get(
+  "/:id/participants",
+  requireEventAccess,
+  validate(eventParticipantsSchema),
+  eventController.getEventParticipants,
+);
+
+// ─── Stats ─────────────────────────────────────────────────────
+
+/**
+ * @swagger
+ * /api/events/{id}/stats:
+ *   get:
+ *     summary: Statistiques d'un événement
+ *     tags: [Events]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: "string", format: "uuid" }
+ *     responses:
+ *       200:
+ *         description: Statistiques
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: "boolean", example: true }
+ *                 data:
+ *                   $ref: '#/components/schemas/EventStats'
+ */
+router.get(
+  "/:id/stats",
+  requireEventAccess,
+  validate(eventStatsSchema),
+  eventController.getEventStats,
 );
 
 export default router;

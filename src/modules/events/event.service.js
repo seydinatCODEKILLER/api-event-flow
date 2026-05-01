@@ -6,7 +6,6 @@ import {
   BadRequestError,
 } from "../../shared/errors/AppError.js";
 import MediaUploader from "../../shared/utils/uploader.js";
-import { hashPassword } from "../../shared/utils/hasher.js";
 
 const eventRepo = new EventRepository();
 
@@ -15,12 +14,20 @@ const eventRepo = new EventRepository();
 const buildEventResponse = (event) => ({
   id: event.id,
   title: event.title,
+  description: event.description ?? null,
   location: event.location,
+  city: event.city ?? null,
+  latitude: event.latitude ?? null,
+  longitude: event.longitude ?? null,
+  category: event.category,
   startDate: event.startDate,
   endDate: event.endDate ?? null,
   capacity: event.capacity,
   status: event.status,
   imageUrl: event.imageUrl ?? null,
+  isFree: event.isFree,
+  price: event.isFree ? null : (event.price ?? null),
+  currency: event.currency,
   organizer: event.organizer ?? undefined,
   moderators:
     event.moderators?.map((m) => ({
@@ -47,7 +54,22 @@ const assertOwner = async (eventId, organizerId) => {
 export class EventService {
   // ─── Créer un événement ───────────────────────────────────────
   async createEvent(organizerId, data, file = null) {
-    const { title, location, startDate, endDate, capacity } = data;
+    const {
+      title,
+      description,
+      location,
+      city,
+      latitude,
+      longitude,
+      category,
+      startDate,
+      endDate,
+      capacity,
+      isFree,
+      price,
+      currency,
+      status,
+    } = data;
 
     if (endDate && new Date(endDate) <= new Date(startDate)) {
       throw new BadRequestError(
@@ -59,7 +81,6 @@ export class EventService {
     let imageUrl = null;
     let imagePublicId = null;
 
-    // 1. Upload l'image si présente
     if (file) {
       const result = await uploader.upload(
         file,
@@ -71,13 +92,21 @@ export class EventService {
     }
 
     try {
-      // 2. Créer l'événement avec l'image
       const event = await eventRepo.create({
         title,
+        description: description ?? null,
         location,
+        city: city ?? null,
+        latitude: latitude ?? null,
+        longitude: longitude ?? null,
+        category,
         startDate: new Date(startDate),
         endDate: endDate ? new Date(endDate) : null,
         capacity,
+        isFree: isFree ?? true,
+        price: isFree ? null : (price ?? null),
+        currency: currency ?? "XOF",
+        status: status ?? "DRAFT",
         organizerId,
         imageUrl,
         imagePublicId,
@@ -92,7 +121,7 @@ export class EventService {
     }
   }
 
-  // ─── Lister les événements ────────────────────────────────────
+  // ─── Lister mes événements créés ──────────────────────────────
   async getEvents(organizerId, options = {}) {
     const { page = 1, limit = 10, status } = options;
 
@@ -113,29 +142,16 @@ export class EventService {
   }
 
   // ─── Détail d'un événement ────────────────────────────────────
-  async getEventById(eventId, userId, role) {
+  // L'accès est vérifié par le middleware requireEventAccess
+  async getEventById(eventId) {
     const event = await eventRepo.findByIdFull(eventId);
     if (!event) throw new NotFoundError("Événement");
-
-    // Vérifier accès : organisateur propriétaire ou modérateur assigné
-    if (role === "ORGANIZER" && event.organizerId !== userId) {
-      throw new ForbiddenError("Accès non autorisé à cet événement");
-    }
-
-    if (role === "MODERATOR") {
-      const assigned = event.moderators.some((m) => m.userId === userId);
-      if (!assigned)
-        throw new ForbiddenError("Vous n'êtes pas assigné à cet événement");
-    }
-
     return buildEventResponse(event);
   }
 
   // ─── Modifier un événement ────────────────────────────────────
   async updateEvent(eventId, organizerId, data, file = null) {
     const event = await assertOwner(eventId, organizerId);
-
-    if (!event) throw new NotFoundError("Événement");
 
     if (event.status === "CLOSED") {
       throw new BadRequestError(
@@ -145,7 +161,12 @@ export class EventService {
 
     const { startDate, endDate } = data;
     const resolvedStart = startDate ? new Date(startDate) : event.startDate;
-    const resolvedEnd = endDate ? new Date(endDate) : event.endDate;
+    const resolvedEnd =
+      endDate !== undefined
+        ? endDate
+          ? new Date(endDate)
+          : null
+        : event.endDate;
 
     if (resolvedEnd && resolvedEnd <= resolvedStart) {
       throw new BadRequestError(
@@ -157,7 +178,6 @@ export class EventService {
     let newImageUrl = null;
     let newImagePublicId = null;
 
-    // 1. Upload la nouvelle image si fournie
     if (file) {
       const result = await uploader.upload(
         file,
@@ -169,21 +189,30 @@ export class EventService {
     }
 
     try {
-      // 2. Mettre à jour l'événement
-      const updated = await eventRepo.updateEvent(eventId, {
-        ...(data.title && { title: data.title }),
-        ...(data.location && { location: data.location }),
-        ...(startDate && { startDate: new Date(startDate) }),
-        ...(endDate !== undefined && {
-          endDate: endDate ? new Date(endDate) : null,
-        }),
-        ...(data.capacity && { capacity: data.capacity }),
-        // Écraser l'image seulement si une nouvelle a été uploadée
-        ...(newImageUrl && { imageUrl: newImageUrl }),
-        ...(newImagePublicId && { imagePublicId: newImagePublicId }),
-      });
+      const updateData = {};
 
-      // 3. Supprimer l'ancienne image de Cloudinary si remplacement réussi
+      if (data.title !== undefined) updateData.title = data.title;
+      if (data.description !== undefined)
+        updateData.description = data.description;
+      if (data.location !== undefined) updateData.location = data.location;
+      if (data.city !== undefined) updateData.city = data.city;
+      if (data.latitude !== undefined) updateData.latitude = data.latitude;
+      if (data.longitude !== undefined) updateData.longitude = data.longitude;
+      if (data.category !== undefined) updateData.category = data.category;
+      if (startDate !== undefined) updateData.startDate = new Date(startDate);
+      if (endDate !== undefined)
+        updateData.endDate = endDate ? new Date(endDate) : null;
+      if (data.capacity !== undefined) updateData.capacity = data.capacity;
+      if (data.isFree !== undefined) {
+        updateData.isFree = data.isFree;
+        updateData.price = data.isFree ? null : (data.price ?? event.price);
+      }
+      if (data.currency !== undefined) updateData.currency = data.currency;
+      if (newImageUrl) updateData.imageUrl = newImageUrl;
+      if (newImagePublicId) updateData.imagePublicId = newImagePublicId;
+
+      const updated = await eventRepo.updateEvent(eventId, updateData);
+
       if (newImagePublicId && event.imagePublicId) {
         await uploader.deleteByPublicId(event.imagePublicId).catch(() => {});
       }
@@ -199,13 +228,7 @@ export class EventService {
 
   // ─── Supprimer un événement ───────────────────────────────────
   async deleteEvent(eventId, organizerId) {
-    const event = await eventRepo.findById(eventId);
-    if (!event) throw new NotFoundError("Événement");
-    if (event.organizerId !== organizerId) {
-      throw new ForbiddenError(
-        "Vous n'êtes pas l'organisateur de cet événement",
-      );
-    }
+    const event = await assertOwner(eventId, organizerId);
 
     if (event.status === "ONGOING") {
       throw new BadRequestError(
@@ -221,120 +244,43 @@ export class EventService {
     await eventRepo.deleteEvent(eventId);
   }
 
-  // ─── Assigner un modérateur ───────────────────────────────────
-  async addModerator(eventId, organizerId, moderatorData, file = null) {
-    const event = await eventRepo.findById(eventId);
-    if (!event) throw new NotFoundError("Événement");
-    if (event.organizerId !== organizerId) {
-      throw new ForbiddenError(
-        "Vous n'êtes pas l'organisateur de cet événement",
+  // ─── Assigner un modérateur existant ──────────────────────────
+  async addModerator(eventId, organizerId, data) {
+    const event = await assertOwner(eventId, organizerId);
+
+    const { email } = data;
+
+    const user = await eventRepo.findUserByEmail(email);
+    if (!user) {
+      throw new NotFoundError("Aucun compte trouvé avec cet email");
+    }
+
+    if (user.status === "PENDING") {
+      throw new BadRequestError("Ce compte n'a pas encore vérifié son email");
+    }
+
+    if (user.id === organizerId) {
+      throw new BadRequestError(
+        "Vous ne pouvez pas vous assigner comme modérateur",
       );
     }
 
-    const { nom, prenom, email, password } = moderatorData;
-
-    const existingUser = await eventRepo.findUserByEmail(email);
-
-    if (existingUser) {
-      if (existingUser.role === "MODERATOR") {
-        const existingAssignment = await eventRepo.findModerator(
-          eventId,
-          existingUser.id,
-        );
-        if (existingAssignment) {
-          throw new ConflictError(
-            "Ce modérateur est déjà assigné à cet événement",
-          );
-        }
-        const assignment = await eventRepo.addModerator(
-          eventId,
-          existingUser.id,
-        );
-        return {
-          ...assignment.user,
-          assignedAt: assignment.assignedAt,
-          message: "Modérateur existant assigné avec succès",
-        };
-      }
-      throw new ConflictError(
-        "Un compte avec cet email existe déjà avec un rôle différent",
-      );
+    const existingAssignment = await eventRepo.findModerator(eventId, user.id);
+    if (existingAssignment) {
+      throw new ConflictError("Ce modérateur est déjà assigné à cet événement");
     }
 
-    // 2. Hasher le mot de passe temporaire
-    const hashedPassword = await hashPassword(password);
+    const assignment = await eventRepo.addModerator(eventId, user.id);
 
-    // 3. Upload l'avatar si fourni
-    const uploader = new MediaUploader();
-    let avatarUrl = null;
-    let avatarPublicId = null;
-
-    if (file) {
-      const result = await uploader.upload(
-        file,
-        "eventflow/avatars",
-        `moderator_${Date.now()}`,
-      );
-      avatarUrl = result.url;
-      avatarPublicId = result.public_id;
-    }
-
-    // 4. Transaction : Création du compte + Assignation
-    try {
-      const newModerator = await eventRepo.prisma.$transaction(async (tx) => {
-        const user = await tx.user.create({
-          data: {
-            nom,
-            prenom,
-            email,
-            password: hashedPassword,
-            role: "MODERATOR",
-            avatarUrl,
-            avatarPublicId,
-          },
-        });
-
-        const assignment = await tx.eventModerator.create({
-          data: { eventId, userId: user.id },
-          include: {
-            user: {
-              select: {
-                id: true,
-                nom: true,
-                prenom: true,
-                email: true,
-                avatarUrl: true,
-              },
-            },
-          },
-        });
-
-        return assignment;
-      });
-
-      return {
-        ...newModerator.user,
-        assignedAt: newModerator.assignedAt,
-        message:
-          "Modérateur créé et assigné avec succès. Partagez ses identifiants de connexion.",
-      };
-    } catch (error) {
-      if (avatarPublicId) {
-        await uploader.deleteByPublicId(avatarPublicId).catch(() => {});
-      }
-      throw error;
-    }
+    return {
+      ...assignment.user,
+      assignedAt: assignment.assignedAt,
+    };
   }
 
   // ─── Retirer un modérateur ────────────────────────────────────
   async removeModerator(eventId, organizerId, moderatorId) {
-    const event = await eventRepo.findById(eventId);
-    if (!event) throw new NotFoundError("Événement");
-    if (event.organizerId !== organizerId) {
-      throw new ForbiddenError(
-        "Vous n'êtes pas l'organisateur de cet événement",
-      );
-    }
+    await assertOwner(eventId, organizerId);
 
     const existing = await eventRepo.findModerator(eventId, moderatorId);
     if (!existing) {
@@ -345,57 +291,163 @@ export class EventService {
   }
 
   // ─── Lister les modérateurs ───────────────────────────────────
-  async getModerators(eventId, userId, role) {
+  // L'accès est vérifié par le middleware requireEventAccess
+  async getModerators(eventId) {
     const event = await eventRepo.findById(eventId);
     if (!event) throw new NotFoundError("Événement");
-
-    if (role === "ORGANIZER" && event.organizerId !== userId) {
-      throw new ForbiddenError("Accès non autorisé");
-    }
 
     return eventRepo.findModerators(eventId);
   }
 
+  // ─── Publier un événement ─────────────────────────────────────
   async publishEvent(eventId, organizerId) {
     const event = await assertOwner(eventId, organizerId);
 
-    // Règle 1 : Un événement clôturé ne peut pas être publié
     if (event.status === "CLOSED") {
       throw new BadRequestError(
         "Un événement clôturé ne peut plus être publié",
       );
     }
 
-    // Règle 2 : On ne publie pas deux fois (évite les appels inutiles)
     if (event.status === "PUBLISHED") {
       throw new BadRequestError("Cet événement est déjà publié");
     }
 
-    // Transition autorisée : DRAFT -> PUBLISHED (ou ONGOING -> PUBLISHED si on veut permettre la pause)
     const updated = await eventRepo.updateEvent(eventId, {
       status: "PUBLISHED",
     });
     return buildEventResponse(updated);
   }
 
-  // ✅ NOUVEAU : Clôturer un événement ──────────────────────
+  // ─── Clôturer un événement ────────────────────────────────────
   async closeEvent(eventId, organizerId) {
     const event = await assertOwner(eventId, organizerId);
 
-    // Règle 1 : On ne clôt pas un événement déjà clôturé
     if (event.status === "CLOSED") {
       throw new BadRequestError("Cet événement est déjà clôturé");
     }
 
-    // Règle 2 : On ne clôt pas un brouillon (il doit être publié au moins une fois)
     if (event.status === "DRAFT") {
       throw new BadRequestError(
         "Impossible de clôturer un brouillon. Publiez l'événement d'abord.",
       );
     }
 
-    // Transition autorisée : PUBLISHED ou ONGOING -> CLOSED
     const updated = await eventRepo.updateEvent(eventId, { status: "CLOSED" });
     return buildEventResponse(updated);
+  }
+
+  // ─── Stats d'un événement ─────────────────────────────────────
+  // L'accès est vérifié par le middleware requireEventAccess
+  async getEventStats(eventId) {
+    const event = await eventRepo.findById(eventId);
+    if (!event) throw new NotFoundError("Événement");
+
+    const [ticketStats, scanStats] = await Promise.all([
+      eventRepo.getTicketStats(eventId),
+      eventRepo.getScanStats(eventId), // ← nouveau
+    ]);
+
+    const tickets = { ACTIVE: 0, USED: 0, CANCELLED: 0 };
+    ticketStats.forEach((t) => {
+      tickets[t.status] = t._count.status;
+    });
+
+    const scans = { VALID: 0, ALREADY_USED: 0, INVALID: 0, CONFLICT: 0 };
+    const byMode = { ONLINE: 0, OFFLINE: 0 };
+
+    scanStats.forEach((s) => {
+      scans[s.result] = (scans[s.result] || 0) + s._count.result;
+      byMode[s.mode] = (byMode[s.mode] || 0) + s._count.result;
+    });
+
+    const totalTickets = tickets.ACTIVE + tickets.USED + tickets.CANCELLED;
+    const attendanceRate =
+      totalTickets > 0
+        ? Math.round((tickets.USED / totalTickets) * 100 * 10) / 10
+        : 0;
+
+    return {
+      capacity: event.capacity,
+      remainingSeats: Math.max(
+        0,
+        event.capacity - tickets.ACTIVE - tickets.USED,
+      ),
+      tickets: {
+        total: totalTickets,
+        ...tickets,
+      },
+      scans: {
+        total: Object.values(scans).reduce((a, b) => a + b, 0),
+        ...scans,
+        byMode,
+      },
+      attendanceRate,
+    };
+  }
+
+  // ─── Tickets d'un événement ───────────────────────────────────
+  async getEventTickets(eventId, options = {}) {
+    const { page = 1, limit = 20, status } = options;
+
+    const event = await eventRepo.findById(eventId);
+    if (!event) throw new NotFoundError("Événement");
+
+    const [tickets, total] = await Promise.all([
+      eventRepo.findTickets(eventId, { page, limit, status }),
+      eventRepo.countTickets(eventId, status),
+    ]);
+
+    return {
+      data: tickets.map((t) => ({
+        id: t.id,
+        status: t.status,
+        qrUrl: t.qrUrl ?? null,
+        usedAt: t.usedAt ?? null,
+        addedByOrganizer: t.addedByOrganizer,
+        createdAt: t.createdAt,
+        user: t.user,
+      })),
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // ─── Participants d'un événement ──────────────────────────────
+  async getEventParticipants(eventId, options = {}) {
+    const { page = 1, limit = 20, search } = options;
+
+    const event = await eventRepo.findById(eventId);
+    if (!event) throw new NotFoundError("Événement");
+
+    const [tickets, total] = await Promise.all([
+      eventRepo.findParticipants(eventId, { page, limit, search }),
+      eventRepo.countDistinctParticipants(eventId, search),
+    ]);
+
+    // Déduplication : un user peut avoir plusieurs tickets
+    const seen = new Set();
+    const uniqueParticipants = [];
+
+    for (const t of tickets) {
+      if (!seen.has(t.user.id)) {
+        seen.add(t.user.id);
+        uniqueParticipants.push(t.user);
+      }
+    }
+
+    return {
+      data: uniqueParticipants,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 }
