@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { TicketController } from "./ticket.controller.js";
 import { validate } from "../../shared/middlewares/validate.middleware.js";
-import { authenticate, requireRole } from "../../shared/middlewares/auth.middleware.js";
+import {
+  authenticate,
+} from "../../shared/middlewares/auth.middleware.js"; 
 import { crudLimiter } from "../../config/rateLimiter.js";
 import {
   getTicketsSchema,
@@ -12,11 +14,9 @@ import {
 
 const ticketController = new TicketController();
 
-
 export const ticketRouter = Router({ mergeParams: true });
 ticketRouter.use(authenticate);
 ticketRouter.use(crudLimiter);
-
 
 /**
  * @swagger
@@ -24,37 +24,32 @@ ticketRouter.use(crudLimiter);
  *   get:
  *     summary: Lister les tickets d'un événement
  *     tags: [Tickets]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema: { type: string, format: uuid }
- *       - in: query
- *         name: page
- *         schema: { type: integer, default: 1 }
- *       - in: query
- *         name: limit
- *         schema: { type: integer, default: 20 }
- *       - in: query
- *         name: status
- *         schema:
- *           type: string
- *           enum: [ACTIVE, USED, CANCELLED]
+ *       - $ref: '#/components/parameters/eventIdParam'
+ *       - $ref: '#/components/parameters/pageQuery'
+ *       - $ref: '#/components/parameters/limitQuery'
+ *       - $ref: '#/components/parameters/ticketStatusQuery'
  *     responses:
  *       200:
  *         description: Liste des tickets avec pagination
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: "boolean", example: true }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/TicketListItem'
+ *                 pagination:
+ *                   $ref: '#/components/schemas/PaginationMeta'
  *       403:
  *         description: Accès non autorisé
  *       404:
  *         description: Événement introuvable
  */
-ticketRouter.get(
-  "/",
-  validate(getTicketsSchema),
-  ticketController.getTickets
-);
+ticketRouter.get("/", validate(getTicketsSchema), ticketController.getTickets);
 
 /**
  * @swagger
@@ -66,24 +61,28 @@ ticketRouter.get(
  *       tous les tickets ACTIVE dans SQLite local.
  *       Réservé aux modérateurs assignés à l'événement.
  *     tags: [Tickets]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema: { type: string, format: uuid }
+ *       - $ref: '#/components/parameters/eventIdParam'
  *     responses:
  *       200:
  *         description: Liste des tickets pour sync offline
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: "boolean", example: true }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/TicketSyncItem'
  *       403:
  *         description: Modérateur non assigné à cet événement
  */
 ticketRouter.get(
   "/sync",
-  requireRole("MODERATOR"),
   validate(syncTicketsSchema),
-  ticketController.getTicketsForSync
+  ticketController.getTicketsForSync,
 );
 
 /**
@@ -92,20 +91,20 @@ ticketRouter.get(
  *   get:
  *     summary: Détail d'un ticket
  *     tags: [Tickets]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema: { type: string, format: uuid }
- *       - in: path
- *         name: ticketId
- *         required: true
- *         schema: { type: string, format: uuid }
+ *       - $ref: '#/components/parameters/eventIdParam'
+ *       - $ref: '#/components/parameters/ticketIdParam'
  *     responses:
  *       200:
- *         description: Détail du ticket avec participant et email logs
+ *         description: Détail du ticket avec l'utilisateur et les logs d'emails
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: "boolean", example: true }
+ *                 data:
+ *                   $ref: '#/components/schemas/TicketDetails'
  *       403:
  *         description: Accès non autorisé
  *       404:
@@ -114,31 +113,23 @@ ticketRouter.get(
 ticketRouter.get(
   "/:ticketId",
   validate(ticketIdSchema),
-  ticketController.getTicketById
+  ticketController.getTicketById,
 );
 
 /**
  * @swagger
  * /api/events/{eventId}/tickets/{ticketId}/send-email:
  *   post:
- *     summary: Envoyer le ticket par email au participant
+ *     summary: Envoyer le ticket par email à l'utilisateur
  *     tags: [Tickets]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema: { type: string, format: uuid }
- *       - in: path
- *         name: ticketId
- *         required: true
- *         schema: { type: string, format: uuid }
+ *       - $ref: '#/components/parameters/eventIdParam'
+ *       - $ref: '#/components/parameters/ticketIdParam'
  *     responses:
  *       200:
  *         description: Email envoyé avec succès
  *       400:
- *         description: Participant sans email ou ticket annulé
+ *         description: Utilisateur sans email ou ticket annulé
  *       403:
  *         description: Non organisateur de l'événement
  *       404:
@@ -146,9 +137,8 @@ ticketRouter.get(
  */
 ticketRouter.post(
   "/:ticketId/send-email",
-  requireRole("ORGANIZER"),
   validate(ticketIdSchema),
-  ticketController.sendTicketEmail
+  ticketController.sendTicketEmail,
 );
 
 /**
@@ -157,30 +147,21 @@ ticketRouter.post(
  *   post:
  *     summary: Renvoyer le ticket par email (doublon intentionnel tracé)
  *     tags: [Tickets]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema: { type: string, format: uuid }
- *       - in: path
- *         name: ticketId
- *         required: true
- *         schema: { type: string, format: uuid }
+ *       - $ref: '#/components/parameters/eventIdParam'
+ *       - $ref: '#/components/parameters/ticketIdParam'
  *     responses:
  *       200:
  *         description: Email renvoyé avec succès
  *       400:
- *         description: Participant sans email ou ticket annulé
+ *         description: Utilisateur sans email ou ticket annulé
  *       404:
  *         description: Ticket introuvable
  */
 ticketRouter.post(
   "/:ticketId/resend-email",
-  requireRole("ORGANIZER"),
   validate(ticketIdSchema),
-  ticketController.resendTicketEmail
+  ticketController.resendTicketEmail,
 );
 
 /**
@@ -192,17 +173,9 @@ ticketRouter.post(
  *       Annule le ticket et supprime le QR code de Cloudinary.
  *       Un ticket USED ne peut pas être annulé.
  *     tags: [Tickets]
- *     security:
- *       - bearerAuth: []
  *     parameters:
- *       - in: path
- *         name: eventId
- *         required: true
- *         schema: { type: string, format: uuid }
- *       - in: path
- *         name: ticketId
- *         required: true
- *         schema: { type: string, format: uuid }
+ *       - $ref: '#/components/parameters/eventIdParam'
+ *       - $ref: '#/components/parameters/ticketIdParam'
  *     responses:
  *       200:
  *         description: Ticket annulé avec succès
@@ -215,9 +188,8 @@ ticketRouter.post(
  */
 ticketRouter.patch(
   "/:ticketId/cancel",
-  requireRole("ORGANIZER"),
   validate(ticketIdSchema),
-  ticketController.cancelTicket
+  ticketController.cancelTicket,
 );
 
 // ─── Router standalone /api/tickets ───────────────────────────
@@ -234,12 +206,10 @@ ticketStandaloneRouter.use(crudLimiter);
  *     description: |
  *       Décode le JWT du QR code, vérifie le statut du ticket,
  *       le marque USED et crée un ScanLog synchronisé immédiatement.
- *       Le QR payload contient déjà ticketId + eventId + participantId —
+ *       Le QR payload contient déjà ticketId + eventId + userId —
  *       pas besoin de passer l'eventId dans l'URL.
  *       Réservé aux modérateurs assignés à l'événement concerné.
  *     tags: [Tickets]
- *     security:
- *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -277,19 +247,9 @@ ticketStandaloneRouter.use(crudLimiter);
  *                     message:
  *                       type: string
  *                       example: "Entrée validée"
- *                     participant:
- *                       type: object
- *                       nullable: true
- *                       properties:
- *                         fullName:
- *                           type: string
- *                           example: "Fatou Sow"
- *                         email:
- *                           type: string
- *                           nullable: true
- *                         phone:
- *                           type: string
- *                           nullable: true
+ *                     user:
+ *                       description: "Informations de l'utilisateur propriétaire du ticket"
+ *                       $ref: '#/components/schemas/User'
  *                     event:
  *                       type: object
  *                       nullable: true
@@ -320,7 +280,6 @@ ticketStandaloneRouter.use(crudLimiter);
  */
 ticketStandaloneRouter.post(
   "/validate",
-  requireRole("MODERATOR"),
   validate(validateTicketSchema),
-  ticketController.validateTicket
+  ticketController.validateTicket,
 );

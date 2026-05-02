@@ -10,7 +10,6 @@ export class TicketController {
       const result = await ticketService.getTickets(
         req.validated.params.eventId,
         req.user.id,
-        req.user.role,
         { page, limit, status }
       );
       res.status(200).json({
@@ -28,7 +27,6 @@ export class TicketController {
       const result = await ticketService.getTicketById(
         req.validated.params.ticketId,
         req.user.id,
-        req.user.role
       );
       res.status(200).json({ success: true, data: result });
     } catch (error) {

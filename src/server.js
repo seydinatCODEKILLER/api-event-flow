@@ -1,15 +1,23 @@
 import "dotenv/config";
+import { createServer } from "http";
 import app from "./app.js";
 import { prisma } from "./config/database.js";
 import { env } from "./config/env.js";
 import logger from "./config/logger.js";
+import { initSocket } from "./config/socket.js";
 
 const startServer = async () => {
   try {
     await prisma.$connect();
     logger.info("PostgreSQL connecté via Prisma");
 
-    const server = app.listen(env.PORT, "0.0.0.0", () => {
+    // Créer le serveur HTTP à partir d'Express
+    const httpServer = createServer(app);
+
+    // Initialiser Socket.io sur le même serveur HTTP
+    initSocket(httpServer);
+
+    httpServer.listen(env.PORT, "0.0.0.0", () => {
       logger.info(`EventFlow API démarrée sur http://localhost:${env.PORT}`);
       logger.info(`Swagger docs : http://localhost:${env.PORT}/api/docs`);
       logger.info(`Environnement : ${env.NODE_ENV}`);
@@ -18,7 +26,7 @@ const startServer = async () => {
     const shutdown = async (signal) => {
       logger.warn(`Signal ${signal} reçu — arrêt en cours...`);
 
-      server.close(async () => {
+      httpServer.close(async () => {
         await prisma.$disconnect();
         logger.info("Serveur arrêté proprement");
         process.exit(0);

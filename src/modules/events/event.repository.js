@@ -276,4 +276,13 @@ export class EventRepository extends BaseRepository {
       _count: { result: true },
     });
   }
+
+  // event.repository.js — à ajouter
+  async findAttendeeIds(eventId) {
+    const tickets = await prisma.ticket.findMany({
+      where: { eventId, status: { in: ["ACTIVE", "USED"] } },
+      select: { userId: true },
+    });
+    return tickets.map((t) => t.userId);
+  }
 }

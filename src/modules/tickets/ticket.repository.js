@@ -10,7 +10,7 @@ export class TicketRepository extends BaseRepository {
     return prisma.ticket.findUnique({
       where: { id },
       include: {
-        participant: {
+        user: {
           select: { id: true, fullName: true, email: true, phone: true },
         },
         event: {
@@ -39,10 +39,11 @@ export class TicketRepository extends BaseRepository {
     });
   }
 
-  findByEventAndParticipant(eventId, participantId) {
+  // <- MODIF : Renommage de la méthode et du where (Prisma @@unique)
+  findByEventAndUser(eventId, userId) {
     return prisma.ticket.findUnique({
       where: {
-        eventId_participantId: { eventId, participantId },
+        eventId_userId: { eventId, userId },
       },
     });
   }
@@ -59,7 +60,8 @@ export class TicketRepository extends BaseRepository {
         usedAt: true,
         addedByOrganizer: true,
         createdAt: true,
-        participant: {
+        user: {
+          // <- MODIF : participant -> user
           select: { id: true, fullName: true, email: true, phone: true },
         },
         emailLogs: {
@@ -105,8 +107,9 @@ export class TicketRepository extends BaseRepository {
         qrPayload: true,
         qrUrl: true,
         status: true,
-        participantId: true,
-        participant: {
+        userId: true, // <- MODIF : participantId -> userId
+        user: {
+          // <- MODIF : participant -> user
           select: { fullName: true },
         },
       },
@@ -131,29 +134,8 @@ export class TicketRepository extends BaseRepository {
   }
 
   // ─── Transactions ────────────────────────────────────────────
-  validateTicketOnline(ticketId, eventId, moderatorId, deviceId) {
-    return prisma.$transaction([
-      prisma.ticket.update({
-        where: { id: ticketId },
-        data: { status: "USED", usedAt: new Date() },
-      }),
-      prisma.scanLog.create({
-        data: {
-          ticketId,
-          eventId,
-          moderatorId,
-          deviceId,
-          result: "VALID",
-          scannedAt: new Date(),
-          syncedAt: new Date(), // Scan online = sync immédiat
-        },
-      }),
-    ]);
-  }
-
-    async processScanOnline(ticketId, eventId, moderatorId, deviceId, result) {
+  async processScanOnline(ticketId, eventId, moderatorId, deviceId, result) {
     return prisma.$transaction(async (tx) => {
-      // On ne met à jour le ticket que si la validation est un succès
       if (result === "VALID") {
         await tx.ticket.update({
           where: { id: ticketId },
@@ -161,7 +143,6 @@ export class TicketRepository extends BaseRepository {
         });
       }
 
-      // On crée TOUJOURS le ScanLog pour la traçabilité
       await tx.scanLog.create({
         data: {
           ticketId,
@@ -169,7 +150,7 @@ export class TicketRepository extends BaseRepository {
           moderatorId,
           deviceId,
           result,
-          mode: "ONLINE", // <-- REMARQUE 1 & 2 : Forcé à ONLINE
+          mode: "ONLINE",
           scannedAt: new Date(),
           syncedAt: new Date(),
         },

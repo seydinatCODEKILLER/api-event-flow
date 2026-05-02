@@ -1,4 +1,5 @@
 import { EventRepository } from "./event.repository.js";
+import { NotificationService } from "../notifications/notification.service.js";
 import {
   NotFoundError,
   ForbiddenError,
@@ -6,8 +7,10 @@ import {
   BadRequestError,
 } from "../../shared/errors/AppError.js";
 import MediaUploader from "../../shared/utils/uploader.js";
+import { emitToEvent } from "../../config/socket.js";
 
 const eventRepo = new EventRepository();
+const notifService = new NotificationService();
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -47,6 +50,16 @@ const assertOwner = async (eventId, organizerId) => {
     throw new ForbiddenError("Vous n'êtes pas l'organisateur de cet événement");
   }
   return event;
+};
+
+// ─── Helper : notifier tous les inscrits d'un event ───────────
+const notifyAllAttendees = async (eventId, { type, title, body }) => {
+  const userIds = await eventRepo.findAttendeeIds(eventId);
+  await Promise.allSettled(
+    userIds.map((userId) =>
+      notifService.notify({ userId, type, title, body, metadata: { eventId } }),
+    ),
+  );
 };
 
 // ─── Service ──────────────────────────────────────────────────
@@ -132,17 +145,11 @@ export class EventService {
 
     return {
       data: events.map(buildEventResponse),
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
   // ─── Détail d'un événement ────────────────────────────────────
-  // L'accès est vérifié par le middleware requireEventAccess
   async getEventById(eventId) {
     const event = await eventRepo.findByIdFull(eventId);
     if (!event) throw new NotFoundError("Événement");
@@ -190,7 +197,6 @@ export class EventService {
 
     try {
       const updateData = {};
-
       if (data.title !== undefined) updateData.title = data.title;
       if (data.description !== undefined)
         updateData.description = data.description;
@@ -217,6 +223,15 @@ export class EventService {
         await uploader.deleteByPublicId(event.imagePublicId).catch(() => {});
       }
 
+      // ── Notifier tous les inscrits — fire and forget ──────────
+      notifyAllAttendees(eventId, {
+        type: "EVENT_UPDATED",
+        title: "Événement modifié",
+        body: `"${event.title}" a été mis à jour`,
+      }).catch(() => {});
+
+      emitToEvent(eventId, "event:updated", { eventId, status: "UPDATED" });
+
       return buildEventResponse(updated);
     } catch (error) {
       if (newImagePublicId) {
@@ -236,6 +251,13 @@ export class EventService {
       );
     }
 
+    // ── Notifier tous les inscrits avant suppression ───────────
+    await notifyAllAttendees(eventId, {
+      type: "EVENT_CANCELLED",
+      title: "Événement annulé",
+      body: `"${event.title}" a été annulé`,
+    }).catch(() => {});
+
     if (event.imagePublicId) {
       const uploader = new MediaUploader();
       await uploader.deleteByPublicId(event.imagePublicId).catch(() => {});
@@ -244,21 +266,16 @@ export class EventService {
     await eventRepo.deleteEvent(eventId);
   }
 
-  // ─── Assigner un modérateur existant ──────────────────────────
+  // ─── Assigner un modérateur ───────────────────────────────────
   async addModerator(eventId, organizerId, data) {
     const event = await assertOwner(eventId, organizerId);
-
     const { email } = data;
 
     const user = await eventRepo.findUserByEmail(email);
-    if (!user) {
-      throw new NotFoundError("Aucun compte trouvé avec cet email");
-    }
-
+    if (!user) throw new NotFoundError("Aucun compte trouvé avec cet email");
     if (user.status === "PENDING") {
       throw new BadRequestError("Ce compte n'a pas encore vérifié son email");
     }
-
     if (user.id === organizerId) {
       throw new BadRequestError(
         "Vous ne pouvez pas vous assigner comme modérateur",
@@ -272,6 +289,17 @@ export class EventService {
 
     const assignment = await eventRepo.addModerator(eventId, user.id);
 
+    // ── Notifier le modérateur ────────────────────────────────
+    notifService
+      .notify({
+        userId: user.id,
+        type: "MODERATOR_ASSIGNED",
+        title: "Vous êtes modérateur",
+        body: `Vous avez été assigné comme modérateur pour "${event.title}"`,
+        metadata: { eventId },
+      })
+      .catch(() => {});
+
     return {
       ...assignment.user,
       assignedAt: assignment.assignedAt,
@@ -283,19 +311,15 @@ export class EventService {
     await assertOwner(eventId, organizerId);
 
     const existing = await eventRepo.findModerator(eventId, moderatorId);
-    if (!existing) {
-      throw new NotFoundError("Assignation");
-    }
+    if (!existing) throw new NotFoundError("Assignation");
 
     await eventRepo.removeModerator(eventId, moderatorId);
   }
 
   // ─── Lister les modérateurs ───────────────────────────────────
-  // L'accès est vérifié par le middleware requireEventAccess
   async getModerators(eventId) {
     const event = await eventRepo.findById(eventId);
     if (!event) throw new NotFoundError("Événement");
-
     return eventRepo.findModerators(eventId);
   }
 
@@ -308,7 +332,6 @@ export class EventService {
         "Un événement clôturé ne peut plus être publié",
       );
     }
-
     if (event.status === "PUBLISHED") {
       throw new BadRequestError("Cet événement est déjà publié");
     }
@@ -326,7 +349,6 @@ export class EventService {
     if (event.status === "CLOSED") {
       throw new BadRequestError("Cet événement est déjà clôturé");
     }
-
     if (event.status === "DRAFT") {
       throw new BadRequestError(
         "Impossible de clôturer un brouillon. Publiez l'événement d'abord.",
@@ -334,18 +356,27 @@ export class EventService {
     }
 
     const updated = await eventRepo.updateEvent(eventId, { status: "CLOSED" });
+
+    // ── Notifier tous les inscrits ────────────────────────────
+    notifyAllAttendees(eventId, {
+      type: "EVENT_CANCELLED",
+      title: "Événement clôturé",
+      body: `"${event.title}" a été clôturé`,
+    }).catch(() => {});
+
+    emitToEvent(eventId, "event:closed", { eventId, status: "CLOSED" });
+
     return buildEventResponse(updated);
   }
 
   // ─── Stats d'un événement ─────────────────────────────────────
-  // L'accès est vérifié par le middleware requireEventAccess
   async getEventStats(eventId) {
     const event = await eventRepo.findById(eventId);
     if (!event) throw new NotFoundError("Événement");
 
     const [ticketStats, scanStats] = await Promise.all([
       eventRepo.getTicketStats(eventId),
-      eventRepo.getScanStats(eventId), // ← nouveau
+      eventRepo.getScanStats(eventId),
     ]);
 
     const tickets = { ACTIVE: 0, USED: 0, CANCELLED: 0 };
@@ -355,7 +386,6 @@ export class EventService {
 
     const scans = { VALID: 0, ALREADY_USED: 0, INVALID: 0, CONFLICT: 0 };
     const byMode = { ONLINE: 0, OFFLINE: 0 };
-
     scanStats.forEach((s) => {
       scans[s.result] = (scans[s.result] || 0) + s._count.result;
       byMode[s.mode] = (byMode[s.mode] || 0) + s._count.result;
@@ -373,10 +403,7 @@ export class EventService {
         0,
         event.capacity - tickets.ACTIVE - tickets.USED,
       ),
-      tickets: {
-        total: totalTickets,
-        ...tickets,
-      },
+      tickets: { total: totalTickets, ...tickets },
       scans: {
         total: Object.values(scans).reduce((a, b) => a + b, 0),
         ...scans,
@@ -408,46 +435,28 @@ export class EventService {
         createdAt: t.createdAt,
         user: t.user,
       })),
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
   // ─── Participants d'un événement ──────────────────────────────
+  // Dans event.service.js -> getEventParticipants
   async getEventParticipants(eventId, options = {}) {
     const { page = 1, limit = 20, search } = options;
 
     const event = await eventRepo.findById(eventId);
     if (!event) throw new NotFoundError("Événement");
 
-    const [tickets, total] = await Promise.all([
+    // Modification ici : utiliser findMany avec distinct sur userId
+    const [participants, total] = await Promise.all([
       eventRepo.findParticipants(eventId, { page, limit, search }),
       eventRepo.countDistinctParticipants(eventId, search),
     ]);
 
-    // Déduplication : un user peut avoir plusieurs tickets
-    const seen = new Set();
-    const uniqueParticipants = [];
-
-    for (const t of tickets) {
-      if (!seen.has(t.user.id)) {
-        seen.add(t.user.id);
-        uniqueParticipants.push(t.user);
-      }
-    }
-
+    // Tu n'as plus besoin du Set, Prisma renvoie déjà les users uniques !
     return {
-      data: uniqueParticipants,
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      data: participants,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 }

@@ -1,5 +1,6 @@
 import { TicketRepository } from "./ticket.repository.js";
 import { EventRepository } from "../events/event.repository.js";
+import { NotificationService } from "../notifications/notification.service.js";
 import {
   generateTicketQr,
   generateQrCodeBase64,
@@ -15,9 +16,11 @@ import {
   ConflictError,
 } from "../../shared/errors/AppError.js";
 import logger from "../../config/logger.js";
+import { emitToEvent } from "../../config/socket.js";
 
 const ticketRepo = new TicketRepository();
 const eventRepo = new EventRepository();
+const notifService = new NotificationService();
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -37,7 +40,8 @@ const buildTicketResponse = (ticket) => ({
   qrUrl: ticket.qrUrl ?? null,
   usedAt: ticket.usedAt ?? null,
   addedByOrganizer: ticket.addedByOrganizer ?? false,
-  participant: ticket.participant ?? undefined,
+  userId: ticket.userId,
+  user: ticket.user ?? undefined,
   event: ticket.event ?? undefined,
   emailLogs: ticket.emailLogs ?? undefined,
   createdAt: ticket.createdAt,
@@ -47,35 +51,33 @@ const buildTicketResponse = (ticket) => ({
 // ─── Service ──────────────────────────────────────────────────
 
 export class TicketService {
-  // ─── Créer un ticket + générer QR + upload Cloudinary ────────
-  async createTicket(eventId, participantId, data = {}) {
-    const existing = await ticketRepo.findByEventAndParticipant(
-      eventId,
-      participantId,
-    );
+  // ─── Créer un ticket ──────────────────────────────────────────
+  async createTicket(eventId, userId, data = {}) {
+    const existing = await ticketRepo.findByEventAndUser(eventId, userId);
     if (existing) {
       throw new ConflictError(
-        "Ce participant a déjà un ticket pour cet événement",
+        "Cet utilisateur a déjà un ticket pour cet événement",
       );
     }
 
-    // Créer le ticket sans payload pour obtenir l'ID
+    // Récupérer l'event pour le titre dans la notif
+    const event = await eventRepo.findById(eventId);
+    if (!event) throw new NotFoundError("Événement");
+
     const ticket = await ticketRepo.create({
       eventId,
-      participantId,
+      userId,
       qrPayload: "",
       status: "ACTIVE",
       addedByOrganizer: data.addedByOrganizer || false,
     });
 
-    // Générer payload JWT + Buffer PNG
     const { payload, buffer } = await generateTicketQr(
       ticket.id,
       eventId,
-      participantId,
+      userId,
     );
 
-    // Upload QR code sur Cloudinary
     const uploader = new MediaUploader();
     let qrUrl = null;
     let qrPublicId = null;
@@ -91,53 +93,56 @@ export class TicketService {
     } catch (err) {
       logger.warn(
         { err, ticketId: ticket.id },
-        "QR upload Cloudinary échoué — fallback base64 à l'envoi email",
+        "QR upload Cloudinary échoué — fallback base64",
       );
     }
 
-    // Mettre à jour le ticket avec payload + URL QR
     const updated = await ticketRepo.updateTicket(ticket.id, {
       qrPayload: payload,
       ...(qrUrl && { qrUrl }),
       ...(qrPublicId && { qrPublicId }),
     });
 
+    // ── Notifier l'user — inscription confirmée ────────────────
+    notifService
+      .notify({
+        userId,
+        type: "INSCRIPTION_CONFIRMED",
+        title: "Inscription confirmée",
+        body: `Votre inscription pour "${event.title}" est confirmée`,
+        metadata: { eventId, ticketId: ticket.id },
+      })
+      .catch(() => {});
+
     return { ticket: updated, qrUrl, buffer };
   }
 
-  // ─── Envoyer le ticket par email ──────────────────────────────
+  // ─── Envoyer le ticket par email (organisateur) ───────────────
   async sendTicketEmail(ticketId, organizerId, isResend = false) {
     const ticket = await ticketRepo.findByIdFull(ticketId);
     if (!ticket) throw new NotFoundError("Ticket");
 
     await assertOrganizerOwnsEvent(ticket.eventId, organizerId);
 
-    if (ticket.status === "CANCELLED") {
+    if (ticket.status === "CANCELLED")
       throw new BadRequestError("Impossible d'envoyer un ticket annulé");
-    }
+    if (!ticket.user.email)
+      throw new BadRequestError("Cet utilisateur n'a pas d'adresse email");
 
-    if (!ticket.participant.email) {
-      throw new BadRequestError(
-        "Ce participant n'a pas d'adresse email — envoi impossible",
-      );
-    }
-
-    // Créer le log email en PENDING
     const emailLog = await ticketRepo.createEmailLog({
       ticketId,
-      to: ticket.participant.email,
+      to: ticket.user.email,
       type: isResend ? "TICKET_RESEND" : "TICKET",
       status: "PENDING",
     });
 
-    // Utiliser qrUrl Cloudinary si disponible, sinon générer base64
     const qrImageUrl = ticket.qrUrl || null;
     const qrBase64 = qrImageUrl
       ? null
       : await generateQrCodeBase64(ticket.qrPayload);
 
     const html = ticketEmailTemplate({
-      participantName: ticket.participant.fullName,
+      participantName: ticket.user.fullName,
       eventTitle: ticket.event.title,
       eventLocation: ticket.event.location,
       eventDate: ticket.event.startDate,
@@ -148,8 +153,8 @@ export class TicketService {
 
     try {
       await sendEmail({
-        to: ticket.participant.email,
-        toName: ticket.participant.fullName,
+        to: ticket.user.email,
+        toName: ticket.user.fullName,
         subject: `Votre ticket — ${ticket.event.title}`,
         html,
       });
@@ -158,38 +163,31 @@ export class TicketService {
         status: "SENT",
         sentAt: new Date(),
       });
-
-      logger.logEvent("ticket_email_sent", {
-        ticketId,
-        to: ticket.participant.email,
-        type: emailLog.type,
-      });
-
-      return { sent: true, to: ticket.participant.email };
+      logger.info(
+        { ticketId, to: ticket.user.email, type: emailLog.type },
+        "ticket_email_sent",
+      );
+      return { sent: true, to: ticket.user.email };
     } catch (err) {
-      logger.error(err);
       await ticketRepo.updateEmailLog(emailLog.id, {
         status: "FAILED",
         error: err.message,
       });
-
-      logger.error({ err, ticketId }, "Échec envoi email ticket");
       throw new BadRequestError(
         "Échec de l'envoi de l'email — réessayez plus tard",
       );
     }
   }
 
-  // Dans ticket.service.js — ajouter cette méthode
-
+  // ─── Envoyer le ticket par email (public) ────────────────────
   async sendTicketEmailPublic(ticketId, activationToken = null) {
     const ticket = await ticketRepo.findByIdFull(ticketId);
     if (!ticket) throw new NotFoundError("Ticket");
-    if (!ticket.participant.email) return;
+    if (!ticket.user.email) return;
 
     const emailLog = await ticketRepo.createEmailLog({
       ticketId,
-      to: ticket.participant.email,
+      to: ticket.user.email,
       type: "TICKET",
       status: "PENDING",
     });
@@ -200,33 +198,27 @@ export class TicketService {
       : await generateQrCodeBase64(ticket.qrPayload);
 
     const html = ticketEmailTemplate({
-      participantName: ticket.participant.fullName,
+      participantName: ticket.user.fullName,
       eventTitle: ticket.event.title,
       eventLocation: ticket.event.location,
       eventDate: ticket.event.startDate,
       qrImageUrl,
       qrBase64,
       ticketId: ticket.id,
-      activationToken, // ← nouveau
-      participantEmail: ticket.participant.email, // ← nouveau
+      activationToken,
+      participantEmail: ticket.user.email,
     });
 
     try {
       await sendEmail({
-        to: ticket.participant.email,
-        toName: ticket.participant.fullName,
+        to: ticket.user.email,
+        toName: ticket.user.fullName,
         subject: `Votre ticket — ${ticket.event.title}`,
         html,
       });
-
       await ticketRepo.updateEmailLog(emailLog.id, {
         status: "SENT",
         sentAt: new Date(),
-      });
-
-      logger.logEvent("ticket_email_sent_public", {
-        ticketId,
-        to: ticket.participant.email,
       });
     } catch (err) {
       await ticketRepo.updateEmailLog(emailLog.id, {
@@ -237,24 +229,19 @@ export class TicketService {
     }
   }
 
-  // ─── Lister les tickets d'un événement ───────────────────────
-  async getTickets(eventId, userId, role, options = {}) {
+  // ─── Lister les tickets d'un event ───────────────────────────
+  async getTickets(eventId, userId, options = {}) {
     const event = await eventRepo.findById(eventId);
     if (!event) throw new NotFoundError("Événement");
 
-    if (role === "ORGANIZER" && event.organizerId !== userId) {
+    const isOrganizer = event.organizerId === userId;
+    const isModerator = await eventRepo.findModerator(eventId, userId);
+
+    if (!isOrganizer && !isModerator) {
       throw new ForbiddenError("Accès non autorisé");
     }
 
-    if (role === "MODERATOR") {
-      const assigned = await eventRepo.findModerator(eventId, userId);
-      if (!assigned) {
-        throw new ForbiddenError("Vous n'êtes pas assigné à cet événement");
-      }
-    }
-
     const { page = 1, limit = 20, status } = options;
-
     const [tickets, total] = await Promise.all([
       ticketRepo.findManyByEvent(eventId, { page, limit, status }),
       ticketRepo.countByEvent(eventId, status),
@@ -262,29 +249,20 @@ export class TicketService {
 
     return {
       data: tickets.map(buildTicketResponse),
-      pagination: {
-        total,
-        page,
-        limit,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
 
   // ─── Détail d'un ticket ───────────────────────────────────────
-  async getTicketById(ticketId, userId, role) {
+  async getTicketById(ticketId, userId) {
     const ticket = await ticketRepo.findByIdFull(ticketId);
     if (!ticket) throw new NotFoundError("Ticket");
 
-    if (role === "ORGANIZER" && ticket.event.organizerId !== userId) {
-      throw new ForbiddenError("Accès non autorisé");
-    }
+    const isOrganizer = ticket.event.organizerId === userId;
+    const isModerator = await eventRepo.findModerator(ticket.eventId, userId);
 
-    if (role === "MODERATOR") {
-      const assigned = await eventRepo.findModerator(ticket.eventId, userId);
-      if (!assigned) {
-        throw new ForbiddenError("Vous n'êtes pas assigné à cet événement");
-      }
+    if (!isOrganizer && !isModerator) {
+      throw new ForbiddenError("Accès non autorisé");
     }
 
     return buildTicketResponse(ticket);
@@ -297,16 +275,13 @@ export class TicketService {
 
     await assertOrganizerOwnsEvent(ticket.eventId, organizerId);
 
-    if (ticket.status === "USED") {
+    if (ticket.status === "USED")
       throw new BadRequestError(
         "Un ticket déjà utilisé ne peut pas être annulé",
       );
-    }
-    if (ticket.status === "CANCELLED") {
+    if (ticket.status === "CANCELLED")
       throw new BadRequestError("Ce ticket est déjà annulé");
-    }
 
-    // Supprimer le QR de Cloudinary si présent
     if (ticket.qrPublicId) {
       const uploader = new MediaUploader();
       await uploader.deleteByPublicId(ticket.qrPublicId).catch(() => {});
@@ -316,32 +291,26 @@ export class TicketService {
     return buildTicketResponse(cancelled);
   }
 
-  // ─── Tickets pour sync mobile (offline-first) ─────────────────
+  // ─── Tickets pour sync offline ────────────────────────────────
   async getTicketsForSync(eventId, moderatorId) {
     const assigned = await eventRepo.findModerator(eventId, moderatorId);
-    if (!assigned) {
+    if (!assigned)
       throw new ForbiddenError("Vous n'êtes pas assigné à cet événement");
-    }
-
     return ticketRepo.findManyActiveByEvent(eventId);
   }
 
-  // ─── Validation online d'un ticket ───────────────────────────
+  // ─── Valider un ticket (scan online) ─────────────────────────
   async validateTicket(qrPayload, moderatorId, deviceId) {
     const decoded = verifyTicketPayload(qrPayload);
-    if (!decoded) {
+    if (!decoded)
       return { result: "INVALID", message: "QR code invalide ou expiré" };
-    }
 
     const ticket = await ticketRepo.findByIdFull(decoded.ticketId);
-    if (!ticket) {
-      return { result: "INVALID", message: "Ticket introuvable" };
-    }
+    if (!ticket) return { result: "INVALID", message: "Ticket introuvable" };
 
     const assigned = await eventRepo.findModerator(ticket.eventId, moderatorId);
-    if (!assigned) {
+    if (!assigned)
       throw new ForbiddenError("Vous n'êtes pas assigné à cet événement");
-    }
 
     if (ticket.status === "CANCELLED") {
       await ticketRepo.processScanOnline(
@@ -362,12 +331,11 @@ export class TicketService {
         deviceId,
         "ALREADY_USED",
       );
-
       return {
         result: "ALREADY_USED",
         message: "Ticket déjà utilisé",
         usedAt: ticket.usedAt,
-        participant: ticket.participant,
+        user: ticket.user,
       };
     }
 
@@ -379,16 +347,38 @@ export class TicketService {
       "VALID",
     );
 
-    logger.logEvent("ticket_validated_online", {
+    // ── Notifier l'user — ticket scanné ───────────────────────
+    notifService
+      .notify({
+        userId: ticket.userId,
+        type: "TICKET_SCANNED",
+        title: "Entrée validée",
+        body: `Votre entrée pour "${ticket.event.title}" a été validée`,
+        metadata: { eventId: ticket.eventId, ticketId: ticket.id },
+      })
+      .catch(() => {});
+
+    // ── Emit Socket — stats live pour l'organisateur ──────────
+    emitToEvent(ticket.eventId, "scan:result", {
+      result: "VALID",
       ticketId: ticket.id,
-      eventId: ticket.eventId,
-      moderatorId,
+      scannedBy: moderatorId,
+      user: { id: ticket.user.id, fullName: ticket.user.fullName },
     });
+
+    logger.info(
+      {
+        ticketId: ticket.id,
+        eventId: ticket.eventId,
+        moderatorId,
+      },
+      "ticket_validated_online",
+    );
 
     return {
       result: "VALID",
       message: "Entrée validée",
-      participant: ticket.participant,
+      user: ticket.user,
       event: ticket.event,
     };
   }
