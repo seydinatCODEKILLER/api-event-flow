@@ -34,6 +34,7 @@ import { ticketRouter, ticketStandaloneRouter } from "./modules/tickets/ticket.r
 import { notificationRoutes } from "./modules/notifications/index.js";
 import { userRouter } from "./modules/users/index.js";
 import { feedRoutes } from "./modules/feed/index.js";
+import { payementRoutes } from "./modules/payements/index.js";
 // import syncRoutes from "./modules/sync/sync.routes.js";
 // import { publicRoutes } from "./modules/public/index.js";
 // import dashboardRoutes from "./modules/dashboard/dashboard.routes.js";
@@ -46,6 +47,7 @@ app.use("/api/tickets", ticketStandaloneRouter);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/users", userRouter);
 app.use("/api/feed", feedRoutes);
+app.use("/api/payments", payementRoutes);
 
 // app.use("/api/public", publicRoutes);
 
