@@ -10,6 +10,7 @@ import {
   loginSchema,
   refreshTokenSchema,
   updateProfileSchema,
+  activateAccountSchema,
 } from "./auth.validator.js";
 import {
   authLimiter,
@@ -259,5 +260,47 @@ router.patch(
  *         description: Non authentifié
  */
 router.post("/revoke-all-tokens", authenticate, authController.revokeAllTokens);
+
+/**
+ * @swagger
+ * /api/auth/activate:
+ *   post:
+ *     summary: Activer un compte créé via lien public
+ *     description: |
+ *       Différent de /verify-email. Permet de valider l'email ET de définir
+ *       le mot de passe pour les utilisateurs inscrits via un lien public (sans mot de passe).
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, password]
+ *             properties:
+ *               token:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *                 minLength: 8
+ *     responses:
+ *       200:
+ *         description: Compte activé et connecté
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: "boolean", example: true }
+ *                 message: { type: "string", example: "Compte activé avec succès !" }
+ *                 data:
+ *                   $ref: '#/components/schemas/AuthResponse'
+ */
+router.post(
+  "/activate",
+  validate(activateAccountSchema),
+  authController.activatePublicAccount,
+);
 
 export default router;

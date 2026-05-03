@@ -57,3 +57,10 @@ export const updateProfileSchema = z.object({
       message: "Au moins un champ doit être fourni",
     }),
 });
+
+export const activateAccountSchema = z.object({
+  body: z.object({
+    token: z.string().min(1, "Le token d'activation est requis"),
+    password: passwordSchema,
+  }),
+});

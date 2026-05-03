@@ -115,4 +115,18 @@ export class AuthController {
       next(error);
     }
   }
+
+  async activatePublicAccount(req, res, next) {
+    try {
+      const { token, password } = req.validated.body;
+      const result = await authService.activatePublicAccount(token, password);
+      res.status(200).json({
+        success: true,
+        message: "Compte activé avec succès !",
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
 }

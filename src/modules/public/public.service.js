@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { PublicRepository } from "./public.repository.js";
 import { TicketService } from "../tickets/ticket.service.js";
 import {
@@ -11,138 +10,125 @@ import logger from "../../config/logger.js";
 const publicRepo = new PublicRepository();
 const ticketService = new TicketService();
 
-// ─── Helpers ──────────────────────────────────────────────────
-
 const buildPublicEventResponse = (event) => {
   const ticketsCount = event._count?.tickets ?? 0;
   return {
     id: event.id,
     title: event.title,
     location: event.location,
+    city: event.city,
     startDate: event.startDate,
     endDate: event.endDate ?? null,
     capacity: event.capacity,
     imageUrl: event.imageUrl ?? null,
+    isFree: event.isFree,
+    price: event.isFree ? null : event.price,
     remainingSpots: Math.max(0, event.capacity - ticketsCount),
     status: event.status,
     isFull: ticketsCount >= event.capacity,
   };
 };
 
-// ─── Service ──────────────────────────────────────────────────
-
 export class PublicService {
-  // ─── Lister les événements publics ───────────────────────────
   async getPublicEvents() {
     const events = await publicRepo.findPublishedEvents(20);
     return events.map(buildPublicEventResponse);
   }
 
-  // ─── Détail d'un événement public ────────────────────────────
   async getPublicEventById(eventId) {
     const event = await publicRepo.findPublishedEventById(eventId);
     if (!event) throw new NotFoundError("Événement");
     return buildPublicEventResponse(event);
   }
 
-  // ─── Inscription self-service ─────────────────────────────────
   async registerToEvent(eventId, data) {
     const { fullName, email, phone } = data;
 
-    // 1. Vérifier que l'événement est PUBLISHED
+    // 1. Vérifier l'événement
     const event = await publicRepo.findPublishedEventById(eventId);
-    if (!event) {
-      throw new NotFoundError(
-        "Événement introuvable ou non disponible à l'inscription",
-      );
-    }
+    if (!event)
+      throw new NotFoundError("Événement introuvable ou non disponible");
 
-    if (event.status !== "PUBLISHED") {
+    if (!event.isFree) {
       throw new BadRequestError(
-        "Les inscriptions ne sont pas ouvertes pour cet événement",
+        "Cet événement est payant. Veuillez vous inscrire via l'application mobile.",
       );
     }
 
-    // 2. Vérification rapide de la capacité (optimisation pour rejeter vite)
-    const ticketsCount = await publicRepo.countTicketsByEvent(eventId);
+    // 3. Vérification rapide de la capacité
+    const ticketsCount = await publicRepo.countValidTicketsByEvent(eventId);
     if (ticketsCount >= event.capacity) {
       throw new BadRequestError("Désolé, cet événement est complet");
     }
 
-    // On englobe la création dans un try/catch pour gérer la concurrence (Race Condition)
     try {
-      // 3. Vérifier doublon — même email ou téléphone déjà inscrit
+      // 4. Vérifier les doublons
       if (email) {
-        const existingByEmail = await publicRepo.findParticipantByEmailAndEvent(
+        const existingByEmail = await publicRepo.findUserByEmailAndEvent(
           email,
           eventId,
         );
-        if (existingByEmail) {
+        if (existingByEmail)
           throw new ConflictError(
-            "Vous êtes déjà inscrit à cet événement avec cet email",
+            "Un billet a déjà été envoyé à cet email pour cet événement",
           );
-        }
       }
-
       if (phone) {
-        const existingByPhone = await publicRepo.findParticipantByPhoneAndEvent(
+        const existingByPhone = await publicRepo.findUserByPhoneAndEvent(
           phone,
           eventId,
         );
-        if (existingByPhone) {
+        if (existingByPhone)
           throw new ConflictError(
-            "Vous êtes déjà inscrit à cet événement avec ce numéro de téléphone",
+            "Un billet a déjà été envoyé à ce numéro pour cet événement",
           );
-        }
       }
 
-      // 4. Créer ou récupérer le participant
-      let participant = null;
+      // 5. Créer ou récupérer l'utilisateur
+      let user = null;
+      if (email) user = await publicRepo.findUserByEmail(email);
+      if (!user && phone) user = await publicRepo.findUserByPhone(phone);
 
-      if (email) participant = await publicRepo.findParticipantByEmail(email);
-      if (!participant && phone)
-        participant = await publicRepo.findParticipantByPhone(phone);
-
-      // Dans registerToEvent — remplacer la création du participant
-      if (!participant) {
-        const activationToken = crypto.randomUUID();
-        participant = await publicRepo.createParticipant({
-          fullName,
-          email: email || null,
-          phone: phone || null,
-          status: "PENDING",
-          activationToken, // toujours généré — sert pour le lien email
-          activationExpiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        });
+      if (!user) {
+        user = await publicRepo.createUser({ fullName, email, phone });
+      } else if (
+        user.status === "PENDING" &&
+        user.verificationExpiresAt < new Date()
+      ) {
+        user = await publicRepo.renewVerificationToken(user.id);
       }
 
-      // 5. Créer le ticket + générer le QR + upload Cloudinary
-      const { ticket } = await ticketService.createTicket(
-        eventId,
-        participant.id,
-      );
+      // 6. Créer le ticket + QR + Cloudinary
+      const { ticket } = await ticketService.createTicket(eventId, user.id, {
+        addedByOrganizer: false,
+      });
 
-      // 6. Envoyer l'email si le participant a un email
-      if (participant.email) {
+      // 7. Envoyer le ticket par email (de façon asynchrone)
+      let emailSent = false;
+      if (user.email) {
         try {
+          // Token d'activation uniquement si PENDING
+          const activationToken =
+            user.status === "PENDING" ? user.verificationToken : null;
           await ticketService.sendTicketEmailPublic(
             ticket.id,
-            participant.activationToken ?? null,
+            activationToken
           );
+          emailSent = true;
         } catch (err) {
           logger.warn(
             { err, ticketId: ticket.id },
-            "Échec envoi email inscription — ticket créé quand même",
+            "Échec envoi email public — ticket créé",
           );
         }
       }
 
       return {
-        participantId: participant.id,
+        userId: user.id,
         ticketId: ticket.id,
-        fullName: participant.fullName,
-        email: participant.email ?? null,
-        emailSent: !!participant.email,
+        fullName: user.fullName,
+        email: user.email ?? null,
+        emailSent,
         event: {
           id: event.id,
           title: event.title,
@@ -151,15 +137,11 @@ export class PublicService {
         },
       };
     } catch (error) {
-      // SÉCURITÉ ANTI-OVERBOOKING (Race Condition)
-      // Si deux requêtes s'exécutent exactement au même millième,
-      // la contrainte Prisma @@unique([eventId, participantId]) déclenchera une erreur P2002.
       if (error.code === "P2002") {
         throw new ConflictError(
-          "Une inscription identique est en cours de traitement ou l'événement vient de se completer.",
+          "L'événement vient d'être complet ou vous êtes déjà inscrit",
         );
       }
-      // On relance les autres erreurs (NotFound, Conflict doublon, etc.)
       throw error;
     }
   }

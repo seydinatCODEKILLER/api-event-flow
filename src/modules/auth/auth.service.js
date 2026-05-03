@@ -316,4 +316,47 @@ export class AuthService {
   async revokeAllTokens(userId) {
     await authRepo.revokeAllUserTokens(userId);
   }
+
+  // ... tes méthodes existantes (register, verifyEmail, login, etc.)
+
+  /**
+   * Activation compte public — utilisé après inscription via lien public.
+   * Valide le token ET définit le mot de passe pour la 1ère fois.
+   */
+  async activatePublicAccount(token, password) {
+    const user = await authRepo.findByVerificationToken(token);
+
+    if (!user) {
+      throw new NotFoundError("Lien d'activation invalide");
+    }
+
+    if (user.status === "ACTIVE") {
+      throw new ConflictError(
+        "Ce compte est déjà vérifié. Veuillez vous connecter.",
+      );
+    }
+
+    if (user.verificationExpiresAt < new Date()) {
+      throw new UnauthorizedError(
+        "Lien d'activation expiré. Veuillez demander un nouveau lien.",
+      );
+    }
+
+    const hashedPassword = await hashPassword(password);
+
+    const updated = await authRepo.update(user.id, {
+      password: hashedPassword,
+      status: "ACTIVE",
+      verificationToken: null,
+      verificationExpiresAt: null,
+    });
+
+    // On génère les tokens pour le connecter direct (comme dans ton verifyEmail)
+    const tokens = await createTokenPair(updated);
+
+    return {
+      user: buildUserResponse(updated),
+      ...tokens,
+    };
+  }
 }
