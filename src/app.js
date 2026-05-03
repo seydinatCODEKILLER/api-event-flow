@@ -36,7 +36,6 @@ import { userRouter } from "./modules/users/index.js";
 import { feedRoutes } from "./modules/feed/index.js";
 import { payementRoutes } from "./modules/payements/index.js";
 import { publicRoutes } from "./modules/public/index.js";
-// import syncRoutes from "./modules/sync/sync.routes.js";
 
 
 app.use("/api/auth", authRoutes);
@@ -48,8 +47,6 @@ app.use("/api/users", userRouter);
 app.use("/api/feed", feedRoutes);
 app.use("/api/payments", payementRoutes);
 app.use("/api/public", publicRoutes);
-
-// app.use("/api/events/:eventId/sync", syncRoutes);
 
 // ─── Health check ─────────────────────────────────────────────
 app.get("/health", (_req, res) => {
